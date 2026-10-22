@@ -94,24 +94,61 @@ export class GoogleOAuthService {
   }
 
   /**
-   * Generates a cryptographically secure random state string with timestamp and signature
+   * Generates a cryptographically secure random state string.
+   *
+   * The state is HMAC-signed with `JWT_SECRET` so the `/callback` route can
+   * verify integrity without relying on a same-domain state cookie (which is
+   * unreliable when the connect initiation is proxied through Vercel but the
+   * OAuth callback goes directly to the Render backend).
+   *
+   * Format (base64url-encoded JSON):
+   *   { p: "<payload JSON string>", h: "<sha256-hmac-hex>" }
    */
   public generateSecureState(customMetadata: Record<string, any> = {}): string {
-    const raw = JSON.stringify({
+    const payload: Record<string, any> = {
       nonce: crypto.randomBytes(16).toString('hex'),
       createdAt: Date.now(),
       ...customMetadata,
-    });
-    return Buffer.from(raw).toString('base64url');
+    };
+    const payloadStr = JSON.stringify(payload);
+    const hmac = crypto
+      .createHmac('sha256', env.JWT_SECRET)
+      .update(payloadStr)
+      .digest('hex');
+    return Buffer.from(JSON.stringify({ p: payloadStr, h: hmac })).toString('base64url');
   }
 
   /**
-   * Validates state parameter to protect against CSRF attacks and replay
+   * Validates state parameter to protect against CSRF attacks and replay.
+   *
+   * Supports two formats for backward compatibility:
+   *  - New:    base64url({ p: payloadJsonString, h: hmacHex })  → HMAC verified
+   *  - Legacy: base64url(payloadJson)                          → timestamp-only check
    */
   public parseAndValidateState(stateStr: string, maxAgeMs = 15 * 60 * 1000): Record<string, any> {
     try {
       const decoded = Buffer.from(stateStr, 'base64url').toString('utf8');
-      const data = JSON.parse(decoded);
+      const outer = JSON.parse(decoded);
+
+      let data: Record<string, any>;
+
+      if (typeof outer.p === 'string' && typeof outer.h === 'string') {
+        // New HMAC-signed format
+        const expectedHmac = crypto
+          .createHmac('sha256', env.JWT_SECRET)
+          .update(outer.p)
+          .digest('hex');
+        const hBuf = Buffer.from(outer.h, 'hex');
+        const eBuf = Buffer.from(expectedHmac, 'hex');
+        if (hBuf.length !== eBuf.length || !crypto.timingSafeEqual(hBuf, eBuf)) {
+          throw new AppError('OAuth state signature is invalid.', 400, 'INVALID_STATE');
+        }
+        data = JSON.parse(outer.p);
+      } else {
+        // Legacy plain JSON format — timestamp check still applies
+        data = outer;
+      }
+
       if (!data.createdAt || Date.now() - data.createdAt > maxAgeMs) {
         throw new AppError('OAuth state has expired. Please try again.', 400, 'STATE_EXPIRED');
       }

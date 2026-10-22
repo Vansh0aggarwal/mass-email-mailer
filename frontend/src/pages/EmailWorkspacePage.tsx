@@ -24,6 +24,7 @@ import { ConversationView } from '../components/mail/ConversationView';
 import { ComposePanel } from '../components/mail/ComposePanel';
 import { IntelligencePanel } from '../components/mail/IntelligencePanel';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
+import { startGmailOAuth } from '../lib/api';
 
 type ThreadListData = { data: MailThread[]; meta?: any };
 
@@ -399,14 +400,19 @@ export function EmailWorkspacePage() {
   };
 
   // Reconnect the account that is currently in an error/paused state.
+  // Passes the existing email as a login_hint so Google pre-selects it.
   const handleConnectGmail = () => {
-    window.location.href = `/api/v1/integrations/google/gmail/connect?returnTo=/email&email=${encodeURIComponent(activeAccount.emailAddress)}`;
+    startGmailOAuth('/email', activeAccount.emailAddress).catch((err: Error) => {
+      pushToast(err.message || 'Failed to start Gmail reconnection. Please try again.');
+    });
   };
 
   // Add a NEW mailbox. Deliberately omits `email` (login_hint) so Google always
   // shows its account chooser and a different account can be authorized.
   const handleAddGmail = () => {
-    window.location.href = '/api/v1/integrations/google/gmail/connect?returnTo=/email';
+    startGmailOAuth('/email').catch((err: Error) => {
+      pushToast(err.message || 'Failed to start Gmail connection. Please try again.');
+    });
   };
 
   const bulkActions = [

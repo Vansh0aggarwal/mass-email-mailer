@@ -54,6 +54,52 @@ function friendlyGmailAuthError(error: string): string {
 }
 
 /**
+ * GET /api/v1/integrations/google/gmail/connect-url
+ *
+ * Returns the Gmail OAuth authorization URL as JSON instead of redirecting.
+ *
+ * WHY THIS EXISTS:
+ * The `/connect` endpoint requires authentication but is reached via raw browser
+ * navigation (`window.location.href`), which cannot attach custom headers.  The
+ * session cookie is scoped to the Render domain and is therefore not sent when
+ * the request is proxied through Vercel.  Fetching this endpoint with the
+ * standard API client (which sends `Authorization: Bearer <token>`) lets
+ * `requireAuth` pass, and the frontend then navigates the browser to the
+ * returned Google URL.
+ */
+router.get('/connect-url', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      throw new AppError(
+        'Google credentials are not configured in environment. Please add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
+        503,
+        'GMAIL_NOT_CONFIGURED'
+      );
+    }
+
+    const returnTo = sanitizeInternalPath(req.query.returnTo, '/email');
+    const loginHint = typeof req.query.email === 'string' ? req.query.email : undefined;
+    const state = googleOAuthService.generateSecureState({
+      organizationId: req.organizationId,
+      userId: req.userId,
+      returnTo,
+    });
+
+    // Set the state cookie so cookie-capable flows still get double-submit
+    // verification.  The cookie is best-effort here: if the callback arrives
+    // without it (cross-domain Vercel/Render architecture), the HMAC signature
+    // on the state parameter is the authoritative CSRF protection.
+    res.cookie(GMAIL_STATE_COOKIE_NAME, state, getStateCookieOptions());
+
+    const url = googleOAuthService.getGmailConnectUrl(state, loginHint);
+
+    res.json({ success: true, data: { url } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/integrations/google/gmail/connect
  * Initiates the Gmail OAuth flow (decoupled from Sign-In)
  */
@@ -101,8 +147,16 @@ router.get('/callback', async (req: Request, res: Response, next: NextFunction) 
     }
 
     const stateCookie = req.cookies?.[GMAIL_STATE_COOKIE_NAME];
-    if (!state || typeof state !== 'string' || !stateCookie || state !== stateCookie) {
+    // When the state is HMAC-signed (new format) the signature is the primary
+    // CSRF protection.  The cookie double-submit check is retained as an
+    // additional layer where the cookie is available, but it is NOT required:
+    // in the Vercel-proxied / Render-callback architecture the cookie domain
+    // differs so the browser may not send it.
+    if (!state || typeof state !== 'string') {
       throw new AppError('Invalid or expired Gmail OAuth state parameter.', 400, 'STATE_MISMATCH');
+    }
+    if (stateCookie && state !== stateCookie) {
+      throw new AppError('Gmail OAuth state cookie mismatch. Please try connecting again.', 400, 'STATE_MISMATCH');
     }
 
     const stateData = googleOAuthService.parseAndValidateState(state);

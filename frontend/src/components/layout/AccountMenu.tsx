@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { EmailAccount } from '../../types';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 import { Avatar } from '../shared/Avatar';
+import { startGmailOAuth } from '../../lib/api';
 
 export function AccountMenu() {
   const { user, organizations, currentOrgId, userRole, logout } = useAuth();
@@ -95,7 +96,9 @@ export function AccountMenu() {
   const displayName = user ? user.fullName : 'Guest User';
 
   const handleConnectGmail = () => {
-    window.location.href = '/api/v1/integrations/google/gmail/connect?returnTo=/email';
+    startGmailOAuth('/email').catch((err: Error) => {
+      showFeedback(err.message || 'Failed to start Gmail connection. Please try again.');
+    });
   };
 
   const handleConfirmDisconnect = () => {

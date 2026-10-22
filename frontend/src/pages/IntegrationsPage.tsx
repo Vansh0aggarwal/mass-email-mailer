@@ -21,7 +21,7 @@ import {
 import { EmailAccount, CalendarAccount, ParsedMeetingResult, CreatedCalendarEvent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
-import { api } from '../lib/api';
+import { api, startGmailOAuth } from '../lib/api';
 
 export function IntegrationsPage() {
   const queryClient = useQueryClient();
@@ -179,8 +179,10 @@ export function IntegrationsPage() {
   });
 
   const handleConnectGmail = (email?: string) => {
-    const hint = email ? `&email=${encodeURIComponent(email)}` : '';
-    window.location.href = `/api/v1/integrations/google/gmail/connect?returnTo=/integrations${hint}`;
+    startGmailOAuth('/integrations', email).catch((err: Error) => {
+      setActionMessage(err.message || 'Failed to start Gmail connection. Please try again.');
+      setTimeout(() => setActionMessage(null), 6000);
+    });
   };
 
   const handleConnectCalendar = () => {

@@ -355,3 +355,49 @@ export const api = {
     return completeJson.data as ChunkedUploadResult;
   },
 };
+
+/**
+ * Starts the Gmail OAuth authorization flow in a way that works correctly in
+ * the Vercel-frontend / Render-backend production architecture.
+ *
+ * WHY NOT `window.location.href` DIRECTLY:
+ * The `/connect` endpoint requires authentication.  Raw browser navigation
+ * cannot attach an `Authorization: Bearer` header, and the `swaniki_session`
+ * HttpOnly cookie is scoped to the Render domain so it is not sent when the
+ * request is proxied through Vercel.  This function uses `fetch()` — which
+ * can attach the bearer token — to obtain the Google authorization URL from
+ * the authenticated `/connect-url` endpoint, then navigates the browser to it.
+ *
+ * @param returnTo  Internal path the user should land on after authorization.
+ * @param email     Optional Gmail address for login_hint (reconnect flow).
+ *                  Omit when adding a new account so Google shows the chooser.
+ */
+export async function startGmailOAuth(returnTo = '/email', email?: string): Promise<void> {
+  const params = new URLSearchParams({ returnTo });
+  if (email) params.set('email', email);
+
+  const token = localStorage.getItem('radar_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`/api/v1/integrations/google/gmail/connect-url?${params.toString()}`, {
+    credentials: 'include',
+    headers,
+  });
+
+  if (!res.ok) {
+    const body: any = await res.json().catch(() => ({}));
+    throw new Error(
+      body?.error?.message ||
+        `Failed to start Gmail authorization (HTTP ${res.status}). Please sign in and try again.`
+    );
+  }
+
+  const json: any = await res.json();
+  const url: string | undefined = json?.data?.url;
+  if (!url) {
+    throw new Error('Server did not return a Gmail authorization URL. Please try again.');
+  }
+
+  window.location.href = url;
+}
