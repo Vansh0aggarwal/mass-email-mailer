@@ -120,11 +120,12 @@ const envSchema = z.object({
   GOOGLE_GMAIL_REDIRECT_URI: z.string().default('http://localhost:5000/api/v1/integrations/google/gmail/callback'),
 });
 
-const parsed = envSchema.safeParse(process.env);
-
-if (!parsed.success) {
-  console.error('Invalid environment variables detected:', parsed.error.format());
+let validatedEnv: z.infer<typeof envSchema>;
+try {
+  validatedEnv = envSchema.parse(process.env);
+} catch (err: any) {
+  console.error('Invalid environment variables detected:', err?.format ? err.format() : err);
   process.exit(1);
 }
 
-export const env = parsed.data;
+export const env = validatedEnv;

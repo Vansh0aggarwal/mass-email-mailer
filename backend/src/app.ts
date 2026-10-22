@@ -2,6 +2,8 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
+import fs from 'fs';
+import path from 'path';
 import { env } from './config/env.js';
 import { tenantContextMiddleware } from './middleware/tenantContext.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -99,6 +101,23 @@ export function createApp(): Express {
   apiV1Router.use('/search', searchRouter);
 
   app.use('/api/v1', apiV1Router);
+
+  // Serve static frontend assets if built (enables all-in-one deployment)
+  const candidateFrontendDirs = [
+    path.resolve(process.cwd(), '../frontend/dist'),
+    path.resolve(process.cwd(), 'frontend/dist'),
+  ];
+  const staticPath = candidateFrontendDirs.find((dir) => fs.existsSync(dir));
+
+  if (staticPath) {
+    app.use(express.static(staticPath));
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      res.sendFile(path.join(staticPath, 'index.html'));
+    });
+  }
 
   // 404 Route Handler
   app.use((req: Request, res: Response) => {
