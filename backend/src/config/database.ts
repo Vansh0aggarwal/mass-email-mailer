@@ -32,7 +32,8 @@ export async function connectDatabase(): Promise<typeof mongoose> {
     console.log('[Database] Starting embedded MongoMemoryServer for development/testing...');
     
     try {
-      const { MongoMemoryServer } = await import('mongodb-memory-server');
+      const dynamicImport = new Function('specifier', 'return import(specifier)');
+      const { MongoMemoryServer } = await dynamicImport('mongodb-memory-server');
       memoryServer = await MongoMemoryServer.create();
       const memUri = memoryServer.getUri();
       await mongoose.connect(memUri);
