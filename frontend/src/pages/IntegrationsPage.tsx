@@ -22,6 +22,7 @@ import { EmailAccount, CalendarAccount, ParsedMeetingResult, CreatedCalendarEven
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { api, startGmailOAuth } from '../lib/api';
+import { mailApi } from '../lib/mail';
 
 export function IntegrationsPage() {
   const queryClient = useQueryClient();
@@ -37,12 +38,7 @@ export function IntegrationsPage() {
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
     queryKey: ['mailboxes'],
-    queryFn: async () => {
-      const res = await fetch('/api/v1/mailboxes', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load mailboxes');
-      const json = await res.json();
-      return json.data || [];
-    },
+    queryFn: () => mailApi.listMailboxes(),
   });
 
   const { data: calendarAccounts = [] } = useQuery<CalendarAccount[]>({

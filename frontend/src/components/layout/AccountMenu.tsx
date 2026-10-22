@@ -12,6 +12,7 @@ import { EmailAccount } from '../../types';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 import { Avatar } from '../shared/Avatar';
 import { startGmailOAuth } from '../../lib/api';
+import { mailApi } from '../../lib/mail';
 
 export function AccountMenu() {
   const { user, organizations, currentOrgId, userRole, logout } = useAuth();
@@ -47,12 +48,7 @@ export function AccountMenu() {
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
     queryKey: ['mailboxes'],
-    queryFn: async () => {
-      const res = await fetch('/api/v1/mailboxes', { credentials: 'include' });
-      if (!res.ok) return [];
-      const json = await res.json();
-      return json.data || [];
-    },
+    queryFn: () => mailApi.listMailboxes(),
     enabled: !!user,
   });
 
