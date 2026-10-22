@@ -1,0 +1,27 @@
+{
+  "name": "swaniki-new-business-radar",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "keywords": [
+    "mern",
+    "email-client",
+    "ai-outreach",
+    "crm",
+    "radar"
+  ],
+  "author": "Swaniki Radar Team",
+  "license": "UNLICENSED"
+}

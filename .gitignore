@@ -1,0 +1,72 @@
+# -----------------------------------------------------------------------------
+# Environment & Secret Variables (Never commit credentials to GitHub)
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!*.env.example
+
+# -----------------------------------------------------------------------------
+# Sensitive Business & Prospect Data (CSVs, Excel, Spreadsheets)
+# -----------------------------------------------------------------------------
+*.csv
+*.xlsx
+*.xls
+*.tsv
+uploads/
+temp/
+tmp/
+swaniki-imports/
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# -----------------------------------------------------------------------------
+# Production Build Outputs
+# -----------------------------------------------------------------------------
+dist/
+backend/dist/
+frontend/dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# -----------------------------------------------------------------------------
+# Logs & Debugging
+# -----------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------------------------------------------------------------
+# Test Coverage & Temp Cache
+# -----------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+vitest.config.ts.timestamp-*
+vite.config.ts.timestamp-*
+
+# -----------------------------------------------------------------------------
+# Editor & OS Artifacts
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
