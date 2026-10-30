@@ -245,7 +245,6 @@ export function AiStudioPage() {
                 type="button"
                 onClick={() => sendMutation.mutate()}
                 disabled={sendMutation.isPending}
-                data-cursor-label="Send now"
                 className="ios-btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
               >
                 <Send className="w-3.5 h-3.5" />

@@ -384,10 +384,10 @@ export function CampaignDetailPage() {
             <button onClick={approveAll} disabled={!!busy} className="ios-btn-secondary px-3.5 py-2 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-40">
               <Check className="w-3.5 h-3.5" /> {busy === 'approve' ? 'Approving…' : 'Approve all'}
             </button>
-            <button onClick={runSendAll} disabled={!!busy} data-cursor-label="Send all" className="ios-btn-primary px-3.5 py-2 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-40">
+            <button onClick={runSendAll} disabled={!!busy} className="ios-btn-primary px-3.5 py-2 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-40">
               <Send className="w-3.5 h-3.5" /> {busy === 'send' ? 'Sending…' : 'Send all'}
             </button>
-            <button onClick={() => sendMutation.mutate(25)} disabled={!!busy} data-cursor-label="Batch of 25" className="ios-btn-secondary px-3.5 py-2 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-40">
+            <button onClick={() => sendMutation.mutate(25)} disabled={!!busy} className="ios-btn-secondary px-3.5 py-2 text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-40">
               <RefreshCw className="w-3.5 h-3.5" /> Send batch
             </button>
             <button

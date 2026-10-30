@@ -1,191 +1,132 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
-  BUTTON_SELECTOR,
-  CARD_SELECTOR,
-  CURSOR_DOT_SIZE,
-  CURSOR_INK_MUTED,
-  CURSOR_INK_PRIMARY,
-  CURSOR_MODES,
+  CURSOR_COLOR,
+  CURSOR_DEFAULT_SCALE,
+  CURSOR_HOVER_SCALE,
+  CURSOR_HOVER_SIZE,
   CURSOR_POINTER_QUERY,
-  CURSOR_RING_SIZE,
-  DARK_SURFACE_LUMINANCE,
-  INTERACTIVE_MODES,
+  CURSOR_PRESS_SCALE,
+  CURSOR_PRESS_SIZE,
+  CURSOR_SIZE,
+  CURSOR_SPRINGS,
+  CURSOR_Z_INDEX,
+  EMBEDDED_SELECTOR,
   INTERACTIVE_SELECTOR,
-  MEDIA_SELECTOR,
+  NATIVE_CURSOR_SELECTOR,
   NON_TEXT_INPUT_TYPES,
+  POSITION_SMOOTHING,
   REDUCED_MOTION_QUERY,
-  clamp,
-  damp,
-  isCursorMode,
-  isInteractiveMode,
-  isSettled,
-  parseCssColor,
-  relativeLuminance,
-  resolveCursorLabel,
-  resolveCursorMode,
-  shouldInvertCursor,
+  TEXT_INPUT_SELECTOR,
+  resolveCursorScale,
+  resolveCursorState,
+  smoothPosition,
+  springForScale,
+  springStep,
+  type CursorSpring,
 } from './cursor';
 
 /* -------------------------------------------------------------------------
- * Modes
+ * State resolution
  * ---------------------------------------------------------------------- */
 
-describe('cursor mode resolution', () => {
-  it('falls back to the default mode', () => {
-    expect(resolveCursorMode({})).toBe('default');
-    expect(resolveCursorMode({ explicit: null })).toBe('default');
+describe('cursor state resolution', () => {
+  it('falls back to the resting dot', () => {
+    expect(resolveCursorState({})).toBe('default');
+    expect(resolveCursorState({ isInteractive: false, isNative: false })).toBe('default');
   });
 
-  it('detects the interactive roles', () => {
-    expect(resolveCursorMode({ isButton: true })).toBe('button');
-    expect(resolveCursorMode({ isLink: true })).toBe('link');
-    expect(resolveCursorMode({ isImage: true })).toBe('image');
-    expect(resolveCursorMode({ isCard: true })).toBe('card');
-    expect(resolveCursorMode({ isTextInput: true })).toBe('text');
-    expect(resolveCursorMode({ isDragging: true })).toBe('drag');
-    expect(resolveCursorMode({ isDisabled: true })).toBe('disabled');
+  it('grows over interactive elements', () => {
+    expect(resolveCursorState({ isInteractive: true })).toBe('hover');
   });
 
-  it('lets a disabled control win over everything else', () => {
-    expect(resolveCursorMode({ isDisabled: true, isButton: true, isLink: true })).toBe('disabled');
-    expect(resolveCursorMode({ isDisabled: true, isTextInput: true })).toBe('disabled');
+  it('steps aside for native affordances', () => {
+    expect(resolveCursorState({ isNative: true })).toBe('native');
+    expect(resolveCursorState({ isNative: true, isInteractive: true })).toBe('native');
   });
 
-  it('prefers a specific control over the surrounding card', () => {
-    expect(resolveCursorMode({ isButton: true, isCard: true })).toBe('button');
-    expect(resolveCursorMode({ isLink: true, isCard: true })).toBe('link');
-    expect(resolveCursorMode({ isImage: true, isCard: true })).toBe('image');
-  });
-
-  it('hides the cursor over an embedded document', () => {
-    expect(resolveCursorMode({ isFrame: true })).toBe('hidden');
-    expect(resolveCursorMode({ isFrame: true, isButton: true })).toBe('hidden');
-    expect(resolveCursorMode({ explicit: 'hidden' })).toBe('hidden');
-    expect(resolveCursorMode({ explicit: 'hidden', isButton: true })).toBe('hidden');
-  });
-
-  it('uses an explicit mode when nothing more specific applies', () => {
-    expect(resolveCursorMode({ explicit: 'drag' })).toBe('drag');
-    expect(resolveCursorMode({ explicit: 'card' })).toBe('card');
-  });
-});
-
-describe('cursor mode guard', () => {
-  it('accepts every known mode', () => {
-    for (const mode of CURSOR_MODES) {
-      expect(isCursorMode(mode)).toBe(true);
-    }
-  });
-
-  it('rejects anything else', () => {
-    expect(isCursorMode('nope')).toBe(false);
-    expect(isCursorMode('')).toBe(false);
-    expect(isCursorMode(null)).toBe(false);
-    expect(isCursorMode(undefined)).toBe(false);
+  it('hides inside an embedded document', () => {
+    expect(resolveCursorState({ isEmbedded: true })).toBe('hidden');
+    expect(resolveCursorState({ isEmbedded: true, isInteractive: true })).toBe('hidden');
+    expect(resolveCursorState({ isEmbedded: true, isNative: true, isInteractive: true })).toBe(
+      'hidden',
+    );
   });
 });
 
 /* -------------------------------------------------------------------------
- * Geometry
+ * Geometry and palette
  * ---------------------------------------------------------------------- */
 
 describe('cursor geometry', () => {
-  const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
-
-  /** The scale a mode ships with, read from the stylesheet itself. */
-  const scaleOf = (mode: string, variable: 'dot-scale' | 'ring-scale'): number => {
-    const rule =
-      css.match(new RegExp(`\\.cursor-layer\\[data-mode='${mode}'\\]\\s*\\{([^}]*)\\}`)) ??
-      css.match(/\.cursor-layer\s*\{([^}]*)\}/);
-    const value = rule?.[1].match(new RegExp(`--${variable}:\\s*([0-9.]+)`));
-    return Number(value?.[1] ?? NaN);
-  };
-
-  it('keeps the untouched cursor small', () => {
-    expect(CURSOR_DOT_SIZE).toBeGreaterThanOrEqual(7);
-    expect(CURSOR_DOT_SIZE).toBeLessThanOrEqual(9);
-    expect(CURSOR_RING_SIZE).toBeGreaterThanOrEqual(24);
-    expect(CURSOR_RING_SIZE).toBeLessThanOrEqual(28);
+  it('uses the requested diameters', () => {
+    expect(CURSOR_SIZE).toBe(10);
+    expect(CURSOR_HOVER_SIZE).toBe(17);
+    expect(CURSOR_PRESS_SIZE).toBe(25);
   });
 
-  it('never enlarges the cursor in the default state', () => {
-    expect(scaleOf('default', 'dot-scale')).toBe(1);
-    expect(scaleOf('default', 'ring-scale')).toBe(1);
+  it('derives the animation scales from a 10px dot', () => {
+    expect(CURSOR_DEFAULT_SCALE).toBe(1);
+    expect(CURSOR_HOVER_SCALE).toBeCloseTo(1.7, 5);
+    expect(CURSOR_PRESS_SCALE).toBeCloseTo(2.5, 5);
   });
 
-  it('grows the dot to 10-12 px over an interactive element', () => {
-    for (const mode of INTERACTIVE_MODES) {
-      const size = CURSOR_DOT_SIZE * scaleOf(mode, 'dot-scale');
-      expect(size).toBeGreaterThanOrEqual(9.5);
-      expect(size).toBeLessThanOrEqual(12);
-    }
+  it('stays above every overlay in the application', () => {
+    expect(CURSOR_Z_INDEX).toBe(2147483647);
   });
 
-  it('grows the ring to 36-42 px over an interactive element', () => {
-    for (const mode of INTERACTIVE_MODES) {
-      const size = CURSOR_RING_SIZE * scaleOf(mode, 'ring-scale');
-      expect(size).toBeGreaterThanOrEqual(35.5);
-      expect(size).toBeLessThanOrEqual(42);
-    }
-  });
-
-  it('never enlarges the cursor over static text or a disabled control', () => {
-    expect(scaleOf('text', 'dot-scale')).toBeLessThanOrEqual(1);
-    expect(scaleOf('text', 'ring-scale')).toBeLessThan(1);
-    expect(scaleOf('disabled', 'dot-scale')).toBeLessThanOrEqual(1);
-    expect(scaleOf('disabled', 'ring-scale')).toBeLessThanOrEqual(1);
-  });
-
-  it('only enlarges the cursor in interactive modes', () => {
-    for (const mode of CURSOR_MODES) {
-      const enlarges =
-        scaleOf(mode, 'dot-scale') > 1 || scaleOf(mode, 'ring-scale') > 1;
-      expect(enlarges).toBe(isInteractiveMode(mode));
-    }
-  });
-
-  it('hides the cursor over an embedded document', () => {
-    // The iframe owns its own cursor, so ours has to step out of the way.
-    const hidden = css.match(/\.cursor-layer\[data-mode='hidden'\]\s*\{([^}]*)\}/);
-    expect(hidden?.[1]).toMatch(/opacity:\s*0/);
-    const visibleAt = css.indexOf(".cursor-layer[data-visible='true']");
-    const hiddenAt = css.indexOf(".cursor-layer[data-mode='hidden']");
-    expect(hiddenAt).toBeGreaterThan(visibleAt);
+  it('uses the primary text ink and only that ink', () => {
+    expect(CURSOR_COLOR).toBe('#CCD0CF');
   });
 });
 
 /* -------------------------------------------------------------------------
- * Interaction detection
+ * Selectors
  * ---------------------------------------------------------------------- */
 
 describe('interaction detection', () => {
-  it('covers the semantic and ARIA ways of being interactive', () => {
+  it('covers buttons, links, navigation, tabs and ARIA widgets', () => {
     for (const selector of [
       'a[href]',
       'button',
+      'summary',
+      'label',
+      'select',
       'input',
       'textarea',
-      'select',
       '[role="button"]',
+      '[role="link"]',
       '[role="tab"]',
       '[role="menuitem"]',
-      '[data-cursor]',
+      '[role="switch"]',
+      '[role="checkbox"]',
+      '[role="combobox"]',
       '[contenteditable="true"]',
+      '.cursor-pointer',
+      '[data-cursor="interactive"]',
     ]) {
       expect(INTERACTIVE_SELECTOR).toContain(selector);
     }
   });
 
-  it('covers the controls that behave like a button', () => {
-    for (const selector of ['button', '[role="tab"]', 'summary', 'select', 'input[type="submit"]']) {
-      expect(BUTTON_SELECTOR).toContain(selector);
+  it('recognises text fields and opt-in selectable regions', () => {
+    for (const selector of ['textarea', 'input', '[contenteditable]', '.select-text', '[data-cursor-native]']) {
+      expect(TEXT_INPUT_SELECTOR).toContain(selector);
     }
   });
 
-  it('knows media and cards', () => {
-    expect(MEDIA_SELECTOR).toContain('img');
-    expect(CARD_SELECTOR).toContain('.ios-card');
+  it('treats specialised controls as native', () => {
+    for (const selector of [
+      'select',
+      ':disabled',
+      '[aria-disabled="true"]',
+      '[draggable="true"]',
+      '.cursor-not-allowed',
+      '.cursor-col-resize',
+      '.cursor-zoom-in',
+    ]) {
+      expect(NATIVE_CURSOR_SELECTOR).toContain(selector);
+    }
   });
 
   it('treats every non text input type as a control', () => {
@@ -194,236 +135,11 @@ describe('interaction detection', () => {
     expect(NON_TEXT_INPUT_TYPES).not.toContain('text');
     expect(NON_TEXT_INPUT_TYPES).not.toContain('email');
   });
-});
 
-/* -------------------------------------------------------------------------
- * Labels
- * ---------------------------------------------------------------------- */
-
-describe('cursor labels', () => {
-  it('uses the explicit label and upper-cases it', () => {
-    expect(resolveCursorLabel('link', 'view')).toBe('VIEW');
-    expect(resolveCursorLabel('default', '  open  ')).toBe('OPEN');
-  });
-
-  it('falls back to the label of the mode', () => {
-    expect(resolveCursorLabel('drag')).toBe('DRAG');
-    expect(resolveCursorLabel('link')).toBeUndefined();
-    expect(resolveCursorLabel('default', null)).toBeUndefined();
-    expect(resolveCursorLabel('default', '   ')).toBeUndefined();
-  });
-
-  it('never renders an unreasonably long label', () => {
-    expect(resolveCursorLabel('link', 'a'.repeat(50))).toHaveLength(14);
-  });
-});
-
-/* -------------------------------------------------------------------------
- * Movement
- * ---------------------------------------------------------------------- */
-
-describe('smoothing', () => {
-  it('never overshoots the target', () => {
-    const value = damp(0, 100, 0.1, 0.016);
-    expect(value).toBeGreaterThan(0);
-    expect(value).toBeLessThan(100);
-  });
-
-  it('converges towards the target', () => {
-    let value = 0;
-    for (let step = 0; step < 60; step += 1) {
-      value = damp(value, 100, 0.1, 0.016);
-    }
-    expect(value).toBeGreaterThan(99);
-    expect(value).toBeLessThanOrEqual(100);
-  });
-
-  it('is frame rate independent', () => {
-    let slow = 0;
-    for (let step = 0; step < 10; step += 1) slow = damp(slow, 100, 0.1, 0.016);
-
-    let fast = 0;
-    for (let step = 0; step < 40; step += 1) fast = damp(fast, 100, 0.1, 0.004);
-
-    expect(Math.abs(slow - fast)).toBeLessThan(0.5);
-  });
-
-  it('jumps straight to the target when the time constant is zero', () => {
-    expect(damp(10, 90, 0, 0.016)).toBe(90);
-    expect(damp(10, 90, 0.1, 0)).toBe(10);
-  });
-});
-
-/**
- * The cursor is driven by a single damped follow. This simulates a real
- * pointer path — a slow drift, a fast flick, an instant reversal and a jump
- * across the screen — and asserts the properties that make the movement feel
- * premium: no overshoot, no jitter, no stuck state.
- */
-describe('motion simulation', () => {
-  const DOT_TAU = 0.006;
-  const RING_TAU = 0.022;
-  const FRAME = 1 / 60;
-
-  interface Trace {
-    dot: number[];
-    ring: number[];
-  }
-
-  function simulate(points: Array<{ x: number; y: number }>): Trace {
-    let dotX = points[0].x;
-    let dotY = points[0].y;
-    let ringX = dotX;
-    let ringY = dotY;
-    const dot: number[] = [];
-    const ring: number[] = [];
-
-    for (const target of points) {
-      dotX = damp(dotX, target.x, DOT_TAU, FRAME);
-      dotY = damp(dotY, target.y, DOT_TAU, FRAME);
-      ringX = damp(ringX, target.x, RING_TAU, FRAME);
-      ringY = damp(ringY, target.y, RING_TAU, FRAME);
-      dot.push(dotX);
-      ring.push(ringX);
-    }
-
-    return { dot, ring };
-  }
-
-  it('never lets the cursor pass the pointer', () => {
-    // A first order lag can not overshoot: the drawn position is always
-    // inside the range the pointer has travelled through so far.
-    const points = Array.from({ length: 240 }, (_, index) => ({
-      x: 400 + Math.sin(index / 9) * 300,
-      y: 300 + Math.cos(index / 13) * 200,
-    }));
-    const trace = simulate(points);
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (let index = 0; index < points.length; index += 1) {
-      min = Math.min(min, points[index].x);
-      max = Math.max(max, points[index].x);
-      expect(trace.dot[index]).toBeGreaterThanOrEqual(min - 0.001);
-      expect(trace.dot[index]).toBeLessThanOrEqual(max + 0.001);
-      expect(trace.ring[index]).toBeGreaterThanOrEqual(min - 0.001);
-      expect(trace.ring[index]).toBeLessThanOrEqual(max + 0.001);
-    }
-  });
-
-  it('keeps the dot far closer to the pointer than the ring', () => {
-    const points = Array.from({ length: 120 }, (_, index) => ({ x: index * 18, y: 300 }));
-    const trace = simulate(points);
-    const last = points.length - 1;
-    const dotLag = Math.abs(trace.dot[last] - points[last].x);
-    const ringLag = Math.abs(trace.ring[last] - points[last].x);
-    expect(dotLag).toBeLessThan(4);
-    expect(ringLag).toBeGreaterThan(dotLag);
-    expect(ringLag).toBeLessThan(20);
-  });
-
-  it('stays glued to the pointer during a fast flick', () => {
-    const points = Array.from({ length: 60 }, (_, index) => ({ x: index * 40, y: 300 }));
-    const trace = simulate(points);
-    const last = trace.dot[trace.dot.length - 1];
-    const target = points[points.length - 1].x;
-    // 40 px per frame is 2400 px/s — the dot may lag a little, never much.
-    expect(Math.abs(last - target)).toBeLessThan(6);
-  });
-
-  it('keeps the ring behind the dot without ever losing it', () => {
-    const points = Array.from({ length: 120 }, (_, index) => ({ x: index * 18, y: 300 }));
-    const trace = simulate(points);
-    for (let index = 0; index < points.length; index += 1) {
-      expect(trace.ring[index]).toBeLessThanOrEqual(trace.dot[index] + 0.0001);
-      expect(Math.abs(trace.ring[index] - points[index].x)).toBeLessThan(20);
-    }
-  });
-
-  it('survives an instant reversal without oscillating', () => {
-    const points: Array<{ x: number; y: number }> = [];
-    for (let index = 0; index < 30; index += 1) points.push({ x: 100 + index * 20, y: 200 });
-    for (let index = 0; index < 30; index += 1) points.push({ x: 700 - index * 20, y: 200 });
-    const trace = simulate(points);
-    // A first order lag can not oscillate: the drawn position is monotonic
-    // between two reversals of the target.
-    for (let index = 1; index < points.length; index += 1) {
-      const delta = trace.dot[index] - trace.dot[index - 1];
-      const targetDelta = points[index].x - points[index - 1].x;
-      if (targetDelta !== 0 && Math.sign(targetDelta) !== Math.sign(delta)) {
-        expect(Math.abs(delta)).toBeLessThan(0.001);
-      }
-    }
-  });
-
-  it('reaches a resting state and reports it', () => {
-    let dotX = 0;
-    for (let step = 0; step < 200; step += 1) dotX = damp(dotX, 640, DOT_TAU, FRAME);
-    expect(isSettled([dotX - 640], 0.05)).toBe(true);
-  });
-
-  it('never produces a value that is not a number', () => {
-    let dotX = 0;
-    for (let step = 0; step < 500; step += 1) {
-      dotX = damp(dotX, step * 37, DOT_TAU, FRAME);
-      expect(Number.isFinite(dotX)).toBe(true);
-    }
-  });
-});
-
-describe('helpers', () => {
-  it('clamps into a range', () => {
-    expect(clamp(5, 0, 10)).toBe(5);
-    expect(clamp(-5, 0, 10)).toBe(0);
-    expect(clamp(50, 0, 10)).toBe(10);
-    expect(clamp(Number.NaN, 3, 10)).toBe(3);
-  });
-
-  it('detects a settled state', () => {
-    expect(isSettled([0.01, -0.02], 0.05)).toBe(true);
-    expect(isSettled([0.2, 0.01], 0.05)).toBe(false);
-    expect(isSettled([], 0.05)).toBe(true);
-  });
-});
-
-/* -------------------------------------------------------------------------
- * Colour
- * ---------------------------------------------------------------------- */
-
-describe('colour handling', () => {
-  it('parses rgb and rgba values', () => {
-    expect(parseCssColor('rgb(23, 23, 23)')).toEqual({ r: 23, g: 23, b: 23, a: 1 });
-    expect(parseCssColor('rgba(163, 163, 163, 0.5)')).toEqual({ r: 163, g: 163, b: 163, a: 0.5 });
-    expect(parseCssColor('rgb(23 23 23 / 0.25)')).toEqual({ r: 23, g: 23, b: 23, a: 0.25 });
-  });
-
-  it('ignores notations it can not read', () => {
-    expect(parseCssColor('transparent')).toBeNull();
-    expect(parseCssColor('currentColor')).toBeNull();
-    expect(parseCssColor(null)).toBeNull();
-    expect(parseCssColor(undefined)).toBeNull();
-  });
-
-  it('computes the relative luminance', () => {
-    const white = relativeLuminance({ r: 255, g: 255, b: 255, a: 1 });
-    const black = relativeLuminance({ r: 0, g: 0, b: 0, a: 1 });
-    expect(white).toBeCloseTo(1, 3);
-    expect(black).toBeCloseTo(0, 3);
-  });
-
-  it('inverts the cursor only on dark surfaces', () => {
-    expect(shouldInvertCursor(0)).toBe(true);
-    expect(shouldInvertCursor(0.05)).toBe(true);
-    expect(shouldInvertCursor(1)).toBe(false);
-    expect(shouldInvertCursor(null)).toBe(false);
-    expect(shouldInvertCursor(Number.NaN)).toBe(false);
-    expect(DARK_SURFACE_LUMINANCE).toBeGreaterThan(0);
-    expect(DARK_SURFACE_LUMINANCE).toBeLessThan(1);
-  });
-
-  it('uses exactly two inks and never a pure white', () => {
-    expect(CURSOR_INK_PRIMARY).toBe(23);
-    expect(CURSOR_INK_MUTED).toBe(163);
-    expect(CURSOR_INK_MUTED).toBeLessThan(255);
+  it('hides the dot inside embedded documents', () => {
+    expect(EMBEDDED_SELECTOR).toContain('iframe');
+    expect(EMBEDDED_SELECTOR).toContain('embed');
+    expect(EMBEDDED_SELECTOR).toContain('object');
   });
 });
 
@@ -433,8 +149,148 @@ describe('capability queries', () => {
     expect(CURSOR_POINTER_QUERY).toContain('pointer: fine');
   });
 
-  it('respects the reduced motion preference', () => {
+  it('keeps the native cursor when reduced motion is requested', () => {
     expect(REDUCED_MOTION_QUERY).toContain('prefers-reduced-motion');
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * Motion
+ * ---------------------------------------------------------------------- */
+
+interface Simulation {
+  ninety: number;
+  settled: number;
+  overshoot: number;
+}
+
+/** Advances a spring at a fixed frame rate and measures its step response. */
+function simulate(spring: CursorSpring, from: number, to: number, fps: number): Simulation {
+  const frame = 1 / fps;
+  const distance = to - from;
+  let value = from;
+  let velocity = 0;
+  let elapsed = 0;
+  let peak = from;
+  let ninety: number | null = null;
+  let settled: number | null = null;
+
+  for (let i = 0; i < Math.ceil(fps * 1.5); i += 1) {
+    const state = springStep(value, velocity, to, spring, frame);
+    value = state.value;
+    velocity = state.velocity;
+    elapsed += frame;
+
+    if ((distance > 0 && value > peak) || (distance < 0 && value < peak)) peak = value;
+    if (ninety === null && Math.abs(value - from) / Math.abs(distance) >= 0.9) ninety = elapsed;
+    if (
+      settled === null &&
+      Math.abs(to - value) <= 0.02 * Math.abs(distance) &&
+      Math.abs(velocity) <= 0.02 * Math.abs(distance)
+    ) {
+      settled = elapsed;
+    }
+  }
+
+  return {
+    ninety: ninety ?? Number.POSITIVE_INFINITY,
+    settled: settled ?? Number.POSITIVE_INFINITY,
+    overshoot: (peak - from) / distance - 1,
+  };
+}
+
+describe('cursor scale resolution', () => {
+  it('rests at 10px and grows only for hover and press', () => {
+    expect(resolveCursorScale('default', false)).toBe(CURSOR_DEFAULT_SCALE);
+    expect(resolveCursorScale('native', false)).toBe(CURSOR_DEFAULT_SCALE);
+    expect(resolveCursorScale('hidden', false)).toBe(CURSOR_DEFAULT_SCALE);
+    expect(resolveCursorScale('hover', false)).toBeCloseTo(CURSOR_HOVER_SCALE, 5);
+    expect(resolveCursorScale('default', true)).toBeCloseTo(CURSOR_PRESS_SCALE, 5);
+    expect(resolveCursorScale('hover', true)).toBeCloseTo(CURSOR_PRESS_SCALE, 5);
+  });
+
+  it('picks a spring for every transition direction', () => {
+    expect(springForScale(CURSOR_DEFAULT_SCALE, CURSOR_HOVER_SCALE, false)).toBe(
+      CURSOR_SPRINGS.hoverIn,
+    );
+    expect(springForScale(CURSOR_HOVER_SCALE, CURSOR_DEFAULT_SCALE, false)).toBe(
+      CURSOR_SPRINGS.hoverOut,
+    );
+    expect(springForScale(CURSOR_PRESS_SCALE, CURSOR_HOVER_SCALE, false)).toBe(
+      CURSOR_SPRINGS.release,
+    );
+    expect(springForScale(CURSOR_DEFAULT_SCALE, CURSOR_PRESS_SCALE, true)).toBe(
+      CURSOR_SPRINGS.press,
+    );
+    // Re-entering an interactive element mid-contraction expands again.
+    expect(springForScale(1.2, CURSOR_HOVER_SCALE, false)).toBe(CURSOR_SPRINGS.hoverIn);
+  });
+});
+
+describe('cursor position smoothing', () => {
+  it('covers the recommended fraction of the distance each 60Hz frame', () => {
+    expect(POSITION_SMOOTHING).toBeGreaterThanOrEqual(0.18);
+    expect(POSITION_SMOOTHING).toBeLessThanOrEqual(0.25);
+    expect(smoothPosition(0, 100, 1 / 60)).toBeCloseTo(100 * POSITION_SMOOTHING, 5);
+  });
+
+  it('follows at the same physical speed on 60Hz and 144Hz displays', () => {
+    let at60 = 0;
+    for (let i = 0; i < 60; i += 1) at60 = smoothPosition(at60, 100, 1 / 60);
+
+    let at144 = 0;
+    for (let i = 0; i < 144; i += 1) at144 = smoothPosition(at144, 100, 1 / 144);
+
+    expect(at60).toBeCloseTo(at144, 6);
+    expect(at60).toBeGreaterThan(95);
+    expect(at60).toBeLessThan(100);
+  });
+
+  it('caps a stalled frame instead of teleporting', () => {
+    expect(smoothPosition(0, 100, 10)).toBeCloseTo(smoothPosition(0, 100, 1 / 30), 10);
+  });
+});
+
+describe('cursor spring physics', () => {
+  it('expands on hover in roughly 180–250ms without visible bounce', () => {
+    const result = simulate(CURSOR_SPRINGS.hoverIn, 1, 1.7, 60);
+    expect(result.settled).toBeGreaterThanOrEqual(0.17);
+    expect(result.settled).toBeLessThanOrEqual(0.27);
+    expect(result.overshoot).toBeLessThan(0.01);
+  });
+
+  it('contracts on hover-out in roughly 200–280ms', () => {
+    const result = simulate(CURSOR_SPRINGS.hoverOut, 1.7, 1, 60);
+    expect(result.settled).toBeGreaterThanOrEqual(0.21);
+    expect(result.settled).toBeLessThanOrEqual(0.29);
+  });
+
+  it('expands on press quickly with a subtle spring settle', () => {
+    const result = simulate(CURSOR_SPRINGS.press, 1, 2.5, 60);
+    expect(result.ninety).toBeLessThan(0.1);
+    expect(result.settled).toBeGreaterThanOrEqual(0.1);
+    expect(result.settled).toBeLessThanOrEqual(0.16);
+    expect(result.overshoot).toBeGreaterThan(0);
+    expect(result.overshoot).toBeLessThan(0.03);
+  });
+
+  it('releases from press in roughly 180–250ms', () => {
+    const result = simulate(CURSOR_SPRINGS.release, 2.5, 1.7, 60);
+    expect(result.settled).toBeGreaterThanOrEqual(0.17);
+    expect(result.settled).toBeLessThanOrEqual(0.26);
+    expect(result.overshoot).toBeLessThan(0.01);
+  });
+
+  it('settles at the same time regardless of refresh rate', () => {
+    for (const [from, to, spring] of [
+      [1, 1.7, CURSOR_SPRINGS.hoverIn],
+      [1, 2.5, CURSOR_SPRINGS.press],
+      [2.5, 1.7, CURSOR_SPRINGS.release],
+    ] as const) {
+      const at60 = simulate(spring, from, to, 60);
+      const at144 = simulate(spring, from, to, 144);
+      expect(Math.abs(at60.settled - at144.settled)).toBeLessThan(0.02);
+    }
   });
 });
 
@@ -444,67 +300,81 @@ describe('capability queries', () => {
 
 describe('cursor stylesheet contract', () => {
   const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+  const block = css.slice(css.indexOf('.custom-cursor'), css.indexOf('/* Overlay scrollbar */'));
+  const declarations = block.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('uses the near black ink in the light theme', () => {
-    expect(css).toContain(`--cursor-ink: ${CURSOR_INK_PRIMARY} ${CURSOR_INK_PRIMARY} ${CURSOR_INK_PRIMARY}`);
+  it('paints a solid circle in the palette ink with no border', () => {
+    expect(declarations).toMatch(/\.custom-cursor__dot\s*\{[^}]*border-radius:\s*50%/);
+    expect(declarations).toContain(`background: ${CURSOR_COLOR};`);
+    expect(declarations).not.toMatch(/(^|[^-])border:\s/);
   });
 
-  it('uses the medium grey ink in the dark theme', () => {
-    expect(css).toContain(`--cursor-ink: ${CURSOR_INK_MUTED} ${CURSOR_INK_MUTED} ${CURSOR_INK_MUTED}`);
+  it('starts as a 10px dot and leaves scaling to the animation loop', () => {
+    expect(declarations).toMatch(/--cursor-size:\s*10px/);
+    expect(declarations).toMatch(/transform:\s*scale\(1\)/);
+    expect(declarations).not.toContain('--cursor-scale');
+    expect(declarations).not.toContain('--cursor-ease');
   });
 
-  it('never paints a pure white cursor', () => {
-    expect(css).not.toMatch(/--cursor-ink:\s*255 255 255/);
+  it('is fixed, covers the viewport, sits on top and never swallows input', () => {
+    const base = declarations.match(/\.custom-cursor\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(base).toMatch(/position:\s*fixed/);
+    expect(base).toMatch(/inset:\s*0/);
+    expect(base).toMatch(/pointer-events:\s*none/);
+    expect(base).toMatch(new RegExp(`z-index:\\s*${CURSOR_Z_INDEX}`));
   });
 
-  it('sizes the dot and the ring as specified', () => {
-    expect(css).toMatch(new RegExp(`\\.cursor-dot\\s*\\{[^}]*width:\\s*${CURSOR_DOT_SIZE}px`));
-    expect(css).toMatch(new RegExp(`\\.cursor-dot\\s*\\{[^}]*height:\\s*${CURSOR_DOT_SIZE}px`));
-    expect(css).toMatch(new RegExp(`\\.cursor-ring\\s*\\{[^}]*width:\\s*${CURSOR_RING_SIZE}px`));
-    expect(css).toMatch(new RegExp(`\\.cursor-ring\\s*\\{[^}]*height:\\s*${CURSOR_RING_SIZE}px`));
+  it('never transitions transform — the animation loop owns motion', () => {
+    expect(declarations).not.toMatch(/transition:[^;]*transform/);
+    expect(declarations).not.toMatch(/transition:[^;]*(left|top)\b/);
   });
 
-  it('keeps the ring border between 35% and 50% opacity', () => {
-    const match = css.match(/--ring-alpha:\s*([0-9.]+)/);
-    expect(match).not.toBeNull();
-    const alpha = Number(match?.[1]);
-    expect(alpha).toBeGreaterThanOrEqual(0.35);
-    expect(alpha).toBeLessThanOrEqual(0.5);
+  it('promotes the anchor and the dot to the compositor', () => {
+    expect(declarations.match(/will-change:\s*transform/g)?.length).toBe(2);
   });
 
-  it('transitions the states in 250-400 ms', () => {
-    const durations = [...css.matchAll(/transform\s+(\d+)ms\s+var\(--ease-soft\)/g)].map((m) =>
-      Number(m[1]),
-    );
-    expect(durations.length).toBeGreaterThan(0);
-    for (const duration of durations) {
-      expect(duration).toBeGreaterThanOrEqual(250);
-      expect(duration).toBeLessThanOrEqual(400);
+  it('has no ring, caret, label, pulse or trailing layer', () => {
+    for (const removed of ['cursor-ring', 'cursor-caret', 'cursor-label', 'cursor-pulse', 'cursor-anchor']) {
+      expect(css).not.toContain(removed);
     }
   });
 
-  it('keeps the press feedback fast', () => {
-    expect(css).toContain('transition-duration: 110ms');
+  it('has no glow, shadow, gradient, filter or blend mode', () => {
+    expect(declarations).not.toContain('box-shadow');
+    expect(declarations).not.toContain('gradient');
+    expect(declarations).not.toContain('filter:');
+    expect(declarations).not.toContain('mix-blend-mode');
   });
 
-  it('never lets the cursor layers swallow a click', () => {
-    expect(css).toMatch(/\.cursor-layer\s*\{[^}]*pointer-events:\s*none/);
+  it('only animates transforms and opacity, never layout', () => {
+    const transitions = [...declarations.matchAll(/transition:[\s\S]*?;/g)].map((match) => match[0]);
+    expect(transitions.length).toBeGreaterThan(0);
+    for (const transition of transitions) {
+      expect(transition).not.toMatch(/\b(width|height|top|left|margin|padding)\b/);
+    }
   });
 
   it('only hides the native cursor while the custom one runs', () => {
-    expect(css).toContain("html[data-cursor='custom']");
+    expect(declarations).toMatch(
+      /html\[data-cursor='custom'\],[\s\S]*?cursor:\s*none !important/,
+    );
+    expect(declarations).not.toMatch(/^\s*\*?\s*\{[^}]*cursor:\s*none/m);
   });
 
-  it('has no glow, shadow or gradient on the cursor', () => {
-    const cursorBlock = css.slice(css.indexOf('.cursor-layer'), css.indexOf('/* Overlay scrollbar */'));
-    expect(cursorBlock).not.toContain('box-shadow');
-    expect(cursorBlock).not.toContain('linear-gradient');
-    expect(cursorBlock).not.toContain('radial-gradient');
-    expect(cursorBlock).not.toContain('filter:');
+  it('restores the native cursor for text fields and selectable content', () => {
+    expect(declarations).toMatch(/textarea/);
+    expect(declarations).toMatch(/\[contenteditable\]:not/);
+    expect(declarations).toMatch(/\.select-text/);
+    expect(declarations).toMatch(/\[data-cursor-native\]/);
+    expect(declarations).toMatch(/cursor:\s*text !important/);
   });
 
-  it('animates transforms and opacity, never layout', () => {
-    const cursorBlock = css.slice(css.indexOf('.cursor-layer'), css.indexOf('/* Overlay scrollbar */'));
-    expect(cursorBlock).not.toMatch(/transition:[^;]*\b(top|left|width|height|margin|padding)\b/);
+  it('restores native cursors for specialised controls', () => {
+    expect(declarations).toMatch(/select,\s*option/);
+    expect(declarations).toMatch(/cursor:\s*not-allowed !important/);
+    expect(declarations).toMatch(/\[draggable='true'\]/);
+    expect(declarations).toMatch(/cursor:\s*grab !important/);
+    expect(declarations).toMatch(/cursor:\s*col-resize !important/);
+    expect(declarations).toMatch(/cursor:\s*zoom-in !important/);
   });
 });
