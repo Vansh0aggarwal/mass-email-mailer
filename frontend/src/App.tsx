@@ -1,37 +1,56 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react';
 import { AppLayout } from './components/layout/AppLayout';
-import { DashboardPage } from './pages/DashboardPage';
-import { EmailWorkspacePage } from './pages/EmailWorkspacePage';
-import { AiStudioPage } from './pages/AiStudioPage';
-import { CompaniesPage } from './pages/CompaniesPage';
-import { CompanyDetailPage } from './pages/CompanyDetailPage';
-import { ContactsPage } from './pages/ContactsPage';
-import { OpportunitiesPage } from './pages/OpportunitiesPage';
-import { CsvImportsPage } from './pages/CsvImportsPage';
-import { TemplatesPage } from './pages/TemplatesPage';
-import { DraftsPage } from './pages/DraftsPage';
-import { FollowUpsPage } from './pages/FollowUpsPage';
-import { CampaignsPage } from './pages/CampaignsPage';
-import { CampaignNewPage } from './pages/CampaignNewPage';
-import { CampaignDetailPage } from './pages/CampaignDetailPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { ServicesPage } from './pages/ServicesPage';
-import { IntegrationsPage } from './pages/IntegrationsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { DeliverabilityPage } from './pages/DeliverabilityPage';
-import { TeamPage } from './pages/TeamPage';
-
 import { AuthProvider } from './context/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { CustomCursor } from './components/common/CustomCursor';
 
+// ---------------------------------------------------------------------------
+// Lazy-load every page so Vite produces per-route chunks instead of one
+// monolithic 1.1 MB bundle. Each page only downloads when first navigated to.
+// Heavy deps (Recharts, react-hook-form, campaign service wrappers) are
+// automatically excluded from the initial JS payload.
+// ---------------------------------------------------------------------------
+const DashboardPage      = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const EmailWorkspacePage = lazy(() => import('./pages/EmailWorkspacePage').then(m => ({ default: m.EmailWorkspacePage })));
+const AiStudioPage       = lazy(() => import('./pages/AiStudioPage').then(m => ({ default: m.AiStudioPage })));
+const CompaniesPage      = lazy(() => import('./pages/CompaniesPage').then(m => ({ default: m.CompaniesPage })));
+const CompanyDetailPage  = lazy(() => import('./pages/CompanyDetailPage').then(m => ({ default: m.CompanyDetailPage })));
+const ContactsPage       = lazy(() => import('./pages/ContactsPage').then(m => ({ default: m.ContactsPage })));
+const OpportunitiesPage  = lazy(() => import('./pages/OpportunitiesPage').then(m => ({ default: m.OpportunitiesPage })));
+const CsvImportsPage     = lazy(() => import('./pages/CsvImportsPage').then(m => ({ default: m.CsvImportsPage })));
+const TemplatesPage      = lazy(() => import('./pages/TemplatesPage').then(m => ({ default: m.TemplatesPage })));
+const DraftsPage         = lazy(() => import('./pages/DraftsPage').then(m => ({ default: m.DraftsPage })));
+const FollowUpsPage      = lazy(() => import('./pages/FollowUpsPage').then(m => ({ default: m.FollowUpsPage })));
+const CampaignsPage      = lazy(() => import('./pages/CampaignsPage').then(m => ({ default: m.CampaignsPage })));
+const CampaignNewPage    = lazy(() => import('./pages/CampaignNewPage').then(m => ({ default: m.CampaignNewPage })));
+const CampaignDetailPage = lazy(() => import('./pages/CampaignDetailPage').then(m => ({ default: m.CampaignDetailPage })));
+const AnalyticsPage      = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
+const ServicesPage       = lazy(() => import('./pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
+const IntegrationsPage   = lazy(() => import('./pages/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
+const SettingsPage       = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const DeliverabilityPage = lazy(() => import('./pages/DeliverabilityPage').then(m => ({ default: m.DeliverabilityPage })));
+const TeamPage           = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })));
+
+// Lightweight fallback shown while a page chunk loads.
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center w-full h-full min-h-[60vh]">
+      <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 2, // 2 minutes
-      retry: 1,
+      // Only retry on server errors (5xx), not auth failures (401/403).
+      // Without this, a 401 would be retried once — a guaranteed wasted request.
+      retry: (failureCount, error: any) =>
+        failureCount < 1 && (error?.status ?? 0) >= 500,
     },
   },
 });
@@ -45,27 +64,29 @@ export function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<AppLayout />}>
-                <Route index element={<DashboardPage />} />
-                <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="email" element={<EmailWorkspacePage />} />
-                <Route path="ai-studio" element={<AiStudioPage />} />
-                <Route path="companies" element={<CompaniesPage />} />
-                <Route path="companies/:id" element={<CompanyDetailPage />} />
-                <Route path="contacts" element={<ContactsPage />} />
-                <Route path="opportunities" element={<OpportunitiesPage />} />
-                <Route path="csv-imports" element={<CsvImportsPage />} />
-                <Route path="templates" element={<TemplatesPage />} />
-                <Route path="drafts" element={<DraftsPage />} />
-                <Route path="follow-ups" element={<FollowUpsPage />} />
-                <Route path="campaigns" element={<CampaignsPage />} />
-                <Route path="campaigns/new" element={<CampaignNewPage />} />
-                <Route path="campaigns/:id" element={<CampaignDetailPage />} />
-                <Route path="analytics" element={<AnalyticsPage />} />
-                <Route path="deliverability" element={<DeliverabilityPage />} />
-                <Route path="team" element={<TeamPage />} />
-                <Route path="services" element={<ServicesPage />} />
-                <Route path="integrations" element={<IntegrationsPage />} />
-                <Route path="settings" element={<SettingsPage />} />
+                {/* All page routes are wrapped in Suspense so the per-route
+                    chunk can be fetched lazily without a blank screen. */}
+                <Route index element={<Suspense fallback={<PageLoader />}><DashboardPage /></Suspense>} />
+                <Route path="dashboard" element={<Suspense fallback={<PageLoader />}><DashboardPage /></Suspense>} />
+                <Route path="email" element={<Suspense fallback={<PageLoader />}><EmailWorkspacePage /></Suspense>} />
+                <Route path="ai-studio" element={<Suspense fallback={<PageLoader />}><AiStudioPage /></Suspense>} />
+                <Route path="companies" element={<Suspense fallback={<PageLoader />}><CompaniesPage /></Suspense>} />
+                <Route path="companies/:id" element={<Suspense fallback={<PageLoader />}><CompanyDetailPage /></Suspense>} />
+                <Route path="contacts" element={<Suspense fallback={<PageLoader />}><ContactsPage /></Suspense>} />
+                <Route path="opportunities" element={<Suspense fallback={<PageLoader />}><OpportunitiesPage /></Suspense>} />
+                <Route path="csv-imports" element={<Suspense fallback={<PageLoader />}><CsvImportsPage /></Suspense>} />
+                <Route path="templates" element={<Suspense fallback={<PageLoader />}><TemplatesPage /></Suspense>} />
+                <Route path="drafts" element={<Suspense fallback={<PageLoader />}><DraftsPage /></Suspense>} />
+                <Route path="follow-ups" element={<Suspense fallback={<PageLoader />}><FollowUpsPage /></Suspense>} />
+                <Route path="campaigns" element={<Suspense fallback={<PageLoader />}><CampaignsPage /></Suspense>} />
+                <Route path="campaigns/new" element={<Suspense fallback={<PageLoader />}><CampaignNewPage /></Suspense>} />
+                <Route path="campaigns/:id" element={<Suspense fallback={<PageLoader />}><CampaignDetailPage /></Suspense>} />
+                <Route path="analytics" element={<Suspense fallback={<PageLoader />}><AnalyticsPage /></Suspense>} />
+                <Route path="deliverability" element={<Suspense fallback={<PageLoader />}><DeliverabilityPage /></Suspense>} />
+                <Route path="team" element={<Suspense fallback={<PageLoader />}><TeamPage /></Suspense>} />
+                <Route path="services" element={<Suspense fallback={<PageLoader />}><ServicesPage /></Suspense>} />
+                <Route path="integrations" element={<Suspense fallback={<PageLoader />}><IntegrationsPage /></Suspense>} />
+                <Route path="settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Route>
             </Route>

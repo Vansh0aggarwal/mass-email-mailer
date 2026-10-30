@@ -18,6 +18,15 @@ export async function connectDatabase(): Promise<typeof mongoose> {
     await mongoose.connect(env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
+      // Explicit connection pool bounds. On a 512 MB server each idle
+      // connection consumes ~1-2 MB. Five connections is sufficient for
+      // normal API concurrency while a campaign scheduler runs.
+      maxPoolSize: 5,
+      minPoolSize: 1,
+      // Heartbeat keeps the connection alive through NAT timeouts (common
+      // on cloud providers like Render and Atlas) without extra overhead.
+      heartbeatFrequencyMS: 30000,
     });
     console.log(`[Database] Connected to external MongoDB at ${redactMongoUri(env.MONGODB_URI)}`);
     return mongoose;

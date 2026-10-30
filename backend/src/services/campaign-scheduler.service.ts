@@ -272,33 +272,34 @@ export class CampaignSchedulerService {
   /**
    * Marks every unsent step of an open recipient as skipped, so no later
    * worker can pick the campaign up and send it.
+   *
+   * Previously used a find-then-save-per-document N+1 pattern. Replaced with
+   * a single bulkWrite that updates all affected recipients in one DB
+   * round-trip, eliminating O(n) sequential writes that blocked the event
+   * loop on large campaigns.
    */
   private async invalidatePendingSteps(organizationId: string, campaignId: any): Promise<number> {
-    const recipients = await CampaignRecipient.find({
-      organizationId,
-      campaignId,
-      status: { $in: ['approved', 'sending', 'prepared', 'pending'] },
-    }).select('_id stepDrafts status');
-
-    let invalidated = 0;
-    for (const recipient of recipients) {
-      let changed = false;
-      for (const slot of recipient.stepDrafts || []) {
-        if (slot.status === 'sent') continue;
-        if (slot.status === 'skipped') continue;
-        slot.status = 'skipped';
-        slot.error = 'Campaign cancelled before this step was sent.';
-        changed = true;
+    // Step 1: mark every pending/sending recipient as skipped in one atomic update.
+    const result = await CampaignRecipient.updateMany(
+      {
+        organizationId,
+        campaignId,
+        status: { $in: ['approved', 'sending', 'prepared', 'pending'] },
+      },
+      {
+        $set: {
+          status: 'skipped',
+          canRetry: false,
+          'stepDrafts.$[unsent].status': 'skipped',
+          'stepDrafts.$[unsent].error': 'Campaign cancelled before this step was sent.',
+        },
+      },
+      {
+        arrayFilters: [{ 'unsent.status': { $nin: ['sent', 'skipped'] } }],
       }
-      if (changed) {
-        recipient.status = 'skipped';
-        recipient.canRetry = false;
-        await recipient.save();
-        invalidated += 1;
-      }
-    }
+    );
 
-    return invalidated;
+    return result.modifiedCount;
   }
 
   /**

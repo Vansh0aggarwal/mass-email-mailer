@@ -30,10 +30,15 @@ const envSchema = z.object({
     .default('true')
     .transform((val) => val === 'true'),
   CAMPAIGN_SCHEDULER_INTERVAL_MS: z.string().transform((val) => parseInt(val, 10)).default('60000'),
-  /** Max accepted request body size (multipart/JSON). Must comfortably exceed the largest CSV. */
-  JSON_BODY_LIMIT: z.string().default('30mb'),
-  /** Maximum accepted CSV/Excel upload size in bytes (default 10 GB). */
-  IMPORT_MAX_FILE_BYTES: z.string().transform((val) => parseInt(val, 10)).default('10737418240'),
+  /** Max accepted request body size for JSON/URL-encoded API requests.
+   * Kept at 2 MB for API calls. The CSV upload path uses multipart/form-data
+   * (multer) so it does NOT go through this limit — raising this just to
+   * support CSV uploads is unnecessary and opens a DoS vector. */
+  JSON_BODY_LIMIT: z.string().default('2mb'),
+  /** Maximum accepted CSV/Excel upload size in bytes (default 100 MB).
+   * 10 GB was the previous default — dangerously large for a 512 MB server.
+   * Operators who need larger files must override this env var explicitly. */
+  IMPORT_MAX_FILE_BYTES: z.string().transform((val) => parseInt(val, 10)).default('104857600'),
   /** Maximum number of data rows accepted in a single import (default 10 million). */
   IMPORT_MAX_ROWS: z.string().transform((val) => parseInt(val, 10)).default('10000000'),
   /** Default chunk size for resumable multipart streaming upload (default 10 MB). */

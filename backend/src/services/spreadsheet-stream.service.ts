@@ -1,11 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 import { env } from '../config/env.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { readXlsxSharedStrings } from './xlsx-shared-strings.service.js';
+
+/**
+ * ExcelJS is a large module (~8 MB on disk, significant heap at load time).
+ * It is only needed when processing .xlsx files, so we import it lazily on
+ * first use. Every other import path (CSV, inspection, cleanup) never pays
+ * the ExcelJS startup cost.
+ */
+let _excelJsModule: typeof import('exceljs') | null = null;
+async function getExcelJS(): Promise<typeof import('exceljs')> {
+  if (!_excelJsModule) {
+    _excelJsModule = await import('exceljs');
+  }
+  return _excelJsModule;
+}
 
 export interface StreamedSpreadsheetRow {
   rowNumber: number;
@@ -110,6 +123,8 @@ export function createXlsxRowStream(
       parseErrors.push(`Excel shared strings unavailable (${preloaded.reason ?? 'unknown error'})`);
     }
 
+    // Lazy-load ExcelJS only when we actually need to parse an XLSX file.
+    const ExcelJS = await getExcelJS();
     const workbookReader = new (ExcelJS.stream.xlsx as any).WorkbookReader(filePath, {
       entries: 'emit',
       sharedStrings: preloaded.ok ? 'ignore' : 'cache',
