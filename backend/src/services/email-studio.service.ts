@@ -25,6 +25,7 @@ export const studioPersonalizeSchema = z.object({
   recipientEmail: z.string().email('A valid recipient email is required'),
   recipientName: z.string().trim().max(120).optional(),
   companyName: z.string().trim().max(160).optional(),
+  domainName: z.string().trim().max(160).optional(),
   recipientRole: z.string().trim().max(160).optional(),
   conversation: z.string().max(12000).optional(),
   objective: z.string().trim().max(600).optional(),
@@ -108,6 +109,7 @@ function variablesFor(input: {
   senderName?: string;
   senderTitle?: string;
   targetService?: string;
+  domainName?: string;
 }): EmailDesignVariables {
   return {
     companyName: input.companyName?.trim() || undefined,
@@ -115,6 +117,7 @@ function variablesFor(input: {
     senderName: input.senderName?.trim() || getEmailBrand().name,
     senderTitle: input.senderTitle?.trim() || undefined,
     service: input.targetService?.trim() || undefined,
+    domainName: input.domainName?.trim() || undefined,
   };
 }
 

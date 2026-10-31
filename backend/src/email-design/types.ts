@@ -171,6 +171,7 @@ export interface EmailDesignVariables {
   senderName?: string;
   senderTitle?: string;
   service?: string;
+  domainName?: string;
 }
 
 /** A metric is complete only when the operator has supplied a real measurement. */

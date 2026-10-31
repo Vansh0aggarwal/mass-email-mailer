@@ -38,6 +38,46 @@ function buildPresets(brand: EmailBrand): EmailDesignPreset[] {
 
   return [
     {
+      id: 'swaniki-enterprise-outreach',
+      name: 'Swaniki Enterprise Outreach (Flagship)',
+      description: 'The official Swaniki high-conversion enterprise outreach template matching the latest email sender.',
+      tone: 'consultative',
+      defaultSubject: 'Question re: {{company_name}} digital infrastructure',
+      design: {
+        version: 1,
+        header: {
+          label: 'ENTERPRISE OUTREACH',
+          title: 'Digital Infrastructure Review for {{company_name}}',
+          subtitle: 'Prepared for {{recipient_name}} · {{service}}',
+          reference: 'CONFIDENTIAL CORRESPONDENCE',
+        },
+        preheader: 'Congratulations on the new venture — a quick idea for your retail / d2c workflow from the Swaniki team.',
+        cards: [
+          {
+            type: 'content',
+            greeting: 'Hi {{recipient_name}},',
+            paragraphs: [
+              'Noticed {{company_name}} was recently incorporated under the Ministry of Corporate Affairs gazette. Congratulations on the new venture.',
+              'While auditing new retail / d2c entrants across your region, I observed that your dedicated digital intake and client portal infrastructure isn\'t live yet on {{domain_name}}. For newly launching businesses in retail / d2c, having a tailor-made customer workflow directly on your owned digital presence establishes immediate credibility and prevents manual phone follow-up.',
+              'At Swaniki (swaniki.com), we build modern web applications, SaaS prototypes, and custom workflow automations ("think it. build it.").',
+            ],
+            callout: 'Specifically for {{company_name}}, we can deliver a {{service}}.',
+          },
+          {
+            type: 'cta',
+            eyebrow: 'NEXT STEP',
+            headline: 'Would you be open to seeing a brief 2-minute architectural prototype we outlined for your retail / d2c workflow?',
+            body: 'I can walk through what we would prioritise first — and what would remain untouched.',
+            buttonLabel: 'View Architectural Prototype',
+            buttonUrl: ctaUrl,
+            footnote: 'No preparation is needed; 15 minutes is enough to decide whether this is relevant.',
+          },
+        ],
+        signature: signatureFor(brand),
+        footer: footerFor(brand),
+      },
+    },
+    {
       id: 'executive-introduction',
       name: 'Executive introduction',
       description: 'A restrained, consultative first note with a clear next step.',
