@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "main": "dist/server.js",
- "scripts": {
-  "dev": "tsx watch src/server.ts",
-  "worker:dev": "tsx watch src/worker.ts",
-  "build": "tsc",
-  "start": "node dist/server.js",
-  "worker": "node dist/worker.js",
-  "test": "vitest run",
-  "test:watch": "vitest",
-  "typecheck": "tsc --noEmit",
-  "lint": "tsc --noEmit"
-},
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "worker:dev": "tsx watch src/worker.ts",
+    "build": "node --max-old-space-size=4096 ../node_modules/typescript/bin/tsc",
+    "start": "node dist/server.js",
+    "worker": "node dist/worker.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "node --max-old-space-size=4096 ../node_modules/typescript/bin/tsc --noEmit",
+    "lint": "node --max-old-space-size=4096 ../node_modules/typescript/bin/tsc --noEmit"
+  },
   "dependencies": {
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
