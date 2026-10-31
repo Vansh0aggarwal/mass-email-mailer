@@ -1,147 +1,180 @@
-import React from 'react';
+import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  Mail,
-  Sparkles,
-  Building2,
-  Users,
-  Compass,
-  FileSpreadsheet,
-  FileCode,
-  FileEdit,
-  Clock,
-  Send,
-  BarChart3,
-  Briefcase,
-  Layers,
-  Settings,
-  Radar,
-  X,
-  ShieldCheck,
-  UserCheck,
-} from 'lucide-react';
+import { Radar, X } from 'lucide-react';
 import { clsx } from 'clsx';
+import { AccountMenu } from './AccountMenu';
+import { NAV_GROUPS, isDashboardPath, type NavItem } from './navigation';
 
-export interface NavItem {
-  name: string;
-  to: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badge?: string;
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-const navigationSections: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Workspace',
-    items: [
-      { name: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-      { name: 'Inbox', to: '/email', icon: Mail },
-      { name: 'Campaigns', to: '/campaigns', icon: Send },
-      { name: 'Follow-ups', to: '/follow-ups', icon: Clock },
-      { name: 'Team', to: '/team', icon: UserCheck },
-      { name: 'AI Email Studio', to: '/ai-studio', icon: Sparkles },
-    ],
-  },
-  {
-    title: 'Intelligence & CRM',
-    items: [
-      { name: 'Companies', to: '/companies', icon: Building2 },
-      { name: 'Imports', to: '/csv-imports', icon: FileSpreadsheet },
-      { name: 'Contacts', to: '/contacts', icon: Users },
-      { name: 'Opportunities', to: '/opportunities', icon: Compass },
-      { name: 'Drafts', to: '/drafts', icon: FileEdit },
-    ],
-  },
-  {
-    title: 'Outreach & Reporting',
-    items: [
-      { name: 'Templates', to: '/templates', icon: FileCode },
-      { name: 'Deliverability', to: '/deliverability', icon: ShieldCheck },
-      { name: 'Services', to: '/services', icon: Briefcase },
-      { name: 'Analytics', to: '/analytics', icon: BarChart3 },
-      { name: 'Integrations', to: '/integrations', icon: Layers },
-      { name: 'Settings', to: '/settings', icon: Settings },
-    ],
-  },
-];
+function Brand({ expanded, onClose }: { expanded: boolean; onClose?: () => void }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line px-2.5 py-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 p-1.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface shadow-sm">
+          <Radar className="h-4 w-4" />
+        </span>
+        {expanded && (
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-sm font-semibold tracking-tight text-ink">
+              SWANIKI
+            </span>
+            <span className="block truncate text-[10px] font-medium text-ink-subtle">
+              New Business Radar
+            </span>
+          </span>
+        )}
+      </div>
 
-export function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close navigation menu"
+          className="rounded-lg p-1.5 text-ink-muted transition-colors hover:bg-surface-3 hover:text-ink"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NavigationList({
+  expanded,
+  onNavigate,
+}: {
+  expanded: boolean;
+  onNavigate?: () => void;
+}) {
   const location = useLocation();
+  const dashboardActive = isDashboardPath(location.pathname);
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon;
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        onClick={onNavigate}
+        end={item.end}
+        aria-label={item.label}
+        title={expanded ? undefined : item.label}
+        className={({ isActive }) =>
+          clsx(
+            'group flex items-center rounded-xl text-[13px] font-medium transition-colors',
+            expanded ? 'justify-start gap-3 px-3 py-2.5' : 'justify-center px-2 py-2.5',
+            isActive || (item.to === '/dashboard' && dashboardActive)
+              ? 'bg-ink/10 text-ink'
+              : 'text-ink-muted hover:bg-surface-3 hover:text-ink'
+          )
+        }
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        {expanded && <span className="truncate">{item.label}</span>}
+      </NavLink>
+    );
+  };
+
+  return (
+    <nav aria-label="Primary navigation" className="space-y-5 px-2 py-3">
+      {NAV_GROUPS.map((group) => (
+        <div key={group.title} className="space-y-1">
+          {expanded ? (
+            <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
+              {group.title}
+            </div>
+          ) : (
+            <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
+          )}
+          {group.items.map(renderItem)}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function AccountArea({ expanded }: { expanded: boolean }) {
+  return (
+    <div className="mt-auto border-t border-line p-2">
+      <AccountMenu variant="rail" expanded={expanded} />
+    </div>
+  );
+}
+
+/**
+ * The left navigation is an independent floating rail. It rests at 68px and
+ * expands inward over the workspace only while the pointer (or keyboard focus)
+ * is inside it — the grid column never changes, so the workspace never shifts.
+ * There is no pinned/persisted state: leaving the rail collapses it.
+ */
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
+
+  const expanded = hovered || focusWithin;
 
   return (
     <>
+      {/* Mobile scrim */}
       <div
         onClick={onClose}
         aria-hidden="true"
         className={clsx(
-          'fixed inset-0 z-30 bg-overlay/40 transition-opacity duration-200 lg:hidden',
+          'fixed inset-0 z-40 bg-overlay/45 backdrop-blur-[2px] transition-opacity duration-200 lg:hidden',
           isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         )}
       />
 
+      {/* Mobile drawer */}
       <aside
+        aria-label="Application navigation"
         className={clsx(
-          'fixed inset-y-0 left-0 z-40 h-screen w-72 max-w-[85vw] bg-surface border-r border-line flex flex-col shrink-0 select-none transition-transform duration-200 ease-out',
-          'lg:sticky lg:top-0 lg:z-20 lg:w-64 lg:max-w-none lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] p-2 transition-transform duration-200 ease-out lg:hidden',
           isOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="h-16 flex items-center justify-between px-4 border-b border-line gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-accent text-accent-fg flex items-center justify-center">
-              <Radar className="w-4 h-4" />
-            </div>
-            <div className="leading-tight">
-              <div className="font-semibold text-sm text-ink tracking-tight">Swaniki</div>
-              <div className="text-[10px] text-ink-subtle font-medium">New Business Radar</div>
-            </div>
+        <div className="flex h-full flex-col overflow-hidden rounded-[20px] border border-line bg-block shadow-pop">
+          <Brand expanded onClose={onClose} />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <NavigationList expanded onNavigate={onClose} />
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close navigation menu"
-            className="lg:hidden p-1.5 rounded-lg text-ink-muted hover:text-ink hover:bg-surface-3 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <AccountArea expanded />
         </div>
+      </aside>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-          {navigationSections.map((section) => (
-            <div key={section.title} className="space-y-1">
-              <div className="px-3 pb-1 text-[10px] font-semibold tracking-wider text-ink-subtle uppercase">
-                {section.title}
-              </div>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const isDashboard = item.to === '/dashboard';
-                const isDashboardActive =
-                  isDashboard && (location.pathname === '/dashboard' || location.pathname === '/');
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={onClose}
-                    end={item.to === '/dashboard' || item.to === '/'}
-                    className={({ isActive }) =>
-                      clsx(
-                        'flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-colors',
-                        isActive || isDashboardActive
-                          ? 'bg-accent/10 text-accent'
-                          : 'text-ink-muted hover:text-ink hover:bg-surface-3'
-                      )
-                    }
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon className="w-4 h-4" />
-                      <span>{item.name}</span>
-                    </span>
-                    {item.badge && <span className="ios-pill">{item.badge}</span>}
-                  </NavLink>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
+      {/* Desktop rail */}
+      <aside
+        aria-label="Application navigation"
+        data-expanded={expanded ? 'true' : 'false'}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocusCapture={(event) => {
+          // Pointer clicks focus links too, but only keyboard focus should open
+          // the rail; otherwise a click would leave it stuck open after the
+          // pointer moves away.
+          if (event.target instanceof Element && event.target.matches(':focus-visible')) {
+            setFocusWithin(true);
+          }
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setFocusWithin(false);
+          }
+        }}
+        className="app-rail app-rail--left hidden flex-col lg:flex"
+      >
+        <Brand expanded={expanded} />
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <NavigationList
+            expanded={expanded}
+            onNavigate={() => setFocusWithin(false)}
+          />
+        </div>
+        <AccountArea expanded={expanded} />
       </aside>
     </>
   );

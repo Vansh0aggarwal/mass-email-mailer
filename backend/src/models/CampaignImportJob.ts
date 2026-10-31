@@ -20,6 +20,8 @@ export interface ICampaignImportJob extends Document {
   organizationId: string;
   campaignId: mongoose.Types.ObjectId;
   campaignName: string;
+  /** Authenticated user who started the import (original actor). */
+  createdBy?: string;
   fileName?: string;
   status: CampaignJobStatus;
   phase?: string;
@@ -63,6 +65,7 @@ const CampaignImportJobSchema = new Schema<ICampaignImportJob>(
     organizationId: { type: String, required: true, index: true },
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true, index: true },
     campaignName: { type: String, required: true },
+    createdBy: { type: String },
     fileName: { type: String, default: 'recipients.csv' },
     uploadId: { type: String, index: true },
     storedFilePath: { type: String },

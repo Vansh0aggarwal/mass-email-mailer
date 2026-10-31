@@ -14,6 +14,7 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { EmailAccount } from '../types';
+import { mailKeys } from '../lib/mail';
 
 export function AiStudioPage() {
   const [companyName, setCompanyName] = useState('Apex Logistics Corp');
@@ -44,7 +45,7 @@ export function AiStudioPage() {
 
   // Fetch available mailboxes (Gmail + Mock)
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['mailboxes'],
+    queryKey: mailKeys.mailboxes,
     queryFn: async () => {
       const res = await fetch('/api/v1/mailboxes', { credentials: 'include' });
       if (!res.ok) return [];

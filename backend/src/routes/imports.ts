@@ -230,6 +230,8 @@ router.post('/commit', async (req: Request, res: Response, next: NextFunction) =
         const company = await Company.create({
           organizationId: orgId,
           name: cleaned.company_name,
+          createdBy: req.userId,
+          createdVia: 'csv_import',
           domain: cleaned.domain || undefined,
           websiteUrl: cleaned.website_url || undefined,
           industry: cleaned.industry || undefined,
@@ -272,6 +274,7 @@ router.post('/commit', async (req: Request, res: Response, next: NextFunction) =
 
     const importLog = await CSVImport.create({
       organizationId: orgId,
+      createdBy: req.userId,
       fileName,
       totalRows: rows.length,
       validRows: importedCount + updatedCount,
@@ -382,19 +385,6 @@ const startJobSchema = z.object({
   scaleType: z.enum(['standard', 'five_star', 'ten_point']).optional(),
 });
 
-function jobResponse(job: any) {
-  const total = job.totalRows || 0;
-  const processed = job.processedRows || 0;
-  return {
-    ...job,
-    jobId: String(job._id),
-    rowCount: job.totalRows,
-    byteLength: job.fileBytes,
-    progressPct: total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0,
-    limits: { maxFileBytes: env.IMPORT_MAX_FILE_BYTES, maxRows: env.IMPORT_MAX_ROWS },
-  };
-}
-
 // POST /api/v1/imports/jobs  (multipart upload + streaming inspect; no row writes)
 router.post('/jobs', (req: Request, res: Response, next: NextFunction) => {
   upload.single('file')(req, res, async (err: any) => {
@@ -412,6 +402,7 @@ router.post('/jobs', (req: Request, res: Response, next: NextFunction) => {
 
       const job = await inspectUploadedFile({
         organizationId: req.organizationId,
+        createdBy: req.userId,
         fileName: req.file.originalname || 'uploaded.csv',
         storedFilePath: req.file.path,
         fileBytes: req.file.size,

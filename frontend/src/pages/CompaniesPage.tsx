@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { Company } from '../types';
 import { Building2, Plus, Search, Globe } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { companySourceLabel, displayUserName, formatAuditDate } from '../lib/ownership';
 
 export function CompaniesPage() {
   const [search, setSearch] = useState('');
@@ -101,7 +102,7 @@ export function CompaniesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-xs">
+          <table className="w-full min-w-[1020px] text-left text-xs">
             <thead className="bg-surface-2 border-b border-line text-ink-subtle font-semibold uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="px-5 py-3.5">Company Name</th>
@@ -109,6 +110,9 @@ export function CompaniesPage() {
                 <th className="px-5 py-3.5">Industry</th>
                 <th className="px-5 py-3.5">Rating</th>
                 <th className="px-5 py-3.5">Location</th>
+                <th className="px-5 py-3.5">Source</th>
+                <th className="px-5 py-3.5">Created By</th>
+                <th className="px-5 py-3.5">Created</th>
                 <th className="px-5 py-3.5 text-right">Actions</th>
               </tr>
             </thead>
@@ -155,6 +159,17 @@ export function CompaniesPage() {
                   </td>
                   <td className="px-5 py-3.5 text-ink-muted">
                     {[c.city, c.country].filter(Boolean).join(', ') || '--'}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="badge badge-neutral text-[10px] font-semibold whitespace-nowrap">
+                      {companySourceLabel(c.createdVia)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5 text-ink-muted whitespace-nowrap">
+                    {displayUserName(c.createdByUser, c.createdBy)}
+                  </td>
+                  <td className="px-5 py-3.5 text-ink-muted tabular-nums whitespace-nowrap">
+                    {formatAuditDate(c.createdAt)}
                   </td>
                   <td className="px-5 py-3.5 text-right space-x-2">
                     <Link

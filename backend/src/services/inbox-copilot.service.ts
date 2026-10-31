@@ -1,7 +1,6 @@
 import { EmailThread } from '../models/EmailThread.js';
 import { Company } from '../models/Company.js';
 import { CampaignRecipient } from '../models/CampaignRecipient.js';
-import { aiGroundingService } from '../providers/ai/ai-grounding.service.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 export type CopilotTone = 'consultative' | 'direct' | 'friendly' | 'formal' | 'urgent';

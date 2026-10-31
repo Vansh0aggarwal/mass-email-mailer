@@ -84,31 +84,6 @@ export const SWANIKI_HEADER_ALIASES: Record<string, string[]> = {
   notes: ['Notes', 'Note', 'Comment', 'Comments', 'Description'],
 };
 
-/** Built-in merge tokens always available in step templates. */
-export const BUILTIN_TOKENS: { token: string; description: string }[] = [
-  { token: 'company_name', description: 'Company name' },
-  { token: 'contact_name', description: 'Full contact name' },
-  { token: 'contact_first_name', description: 'Contact first name' },
-  { token: 'contact_last_name', description: 'Contact last name' },
-  { token: 'industry', description: 'Industry' },
-  { token: 'sector', description: 'Sector' },
-  { token: 'city', description: 'City' },
-  { token: 'country', description: 'Country' },
-  { token: 'proposed_deliverable', description: 'Proposed deliverable' },
-  { token: 'sender_name', description: 'Your sender name' },
-  { token: 'sender_business', description: 'Sender business name' },
-  { token: 'sign_off', description: 'Sender sign-off' },
-  { token: 'signature', description: 'Sender signature' },
-  { token: 'contact_details', description: 'Sender contact details' },
-  { token: 'greeting', description: 'Personalized greeting' },
-  { token: 'step_1_subject', description: 'Step 1 Subject from CSV' },
-  { token: 'step_1_body', description: 'Step 1 Body from CSV' },
-  { token: 'step_2_subject', description: 'Step 2 Subject from CSV' },
-  { token: 'step_2_body', description: 'Step 2 Body from CSV' },
-  { token: 'step_3_subject', description: 'Step 3 Subject from CSV' },
-  { token: 'step_3_body', description: 'Step 3 Body from CSV' },
-];
-
 /** Mirrors the backend normalizeTokenKey so UI hints match what the server does. */
 export function normalizeTokenKey(raw: string): string {
   return String(raw || '')
@@ -284,16 +259,6 @@ export function recipientStatusClass(status: CampaignRecipient['status']): strin
  */
 export function nextActionableStep(recipient: CampaignRecipient): RecipientStepDraft | undefined {
   return recipient.stepDrafts.find((d) => d.status !== 'sent' && d.status !== 'skipped');
-}
-
-export function maskEmail(email: string): string {
-  if (!email) return '—';
-  if (email.includes('@invalid.local')) return '(Missing / invalid)';
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const maskedLocal =
-    local.length <= 2 ? local : `${local[0]}${'*'.repeat(Math.max(1, Math.min(local.length - 2, 6)))}${local[local.length - 1]}`;
-  return `${maskedLocal}@${domain}`;
 }
 
 export function isValidEmailFormat(email: string): boolean {

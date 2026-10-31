@@ -8,12 +8,18 @@ import { Campaign } from '../models/Campaign.js';
 import { CampaignRecipient } from '../models/CampaignRecipient.js';
 import { EmailDraft } from '../models/EmailDraft.js';
 import { EmailSendAttempt } from '../models/EmailSendAttempt.js';
+import { CampaignImportJob } from '../models/CampaignImportJob.js';
+import { CampaignStagingContact } from '../models/CampaignStagingContact.js';
 import { campaignService, campaignJobEventEmitter } from '../services/campaign.service.js';
 import { campaignSchedulerService } from '../services/campaign-scheduler.service.js';
 import { replyAssociationService } from '../services/reply-association.service.js';
 import { senderAccountService } from '../services/sender-account.service.js';
 import { senderAllocationService } from '../services/sender-allocation.service.js';
 import { senderQueueService } from '../services/sender-queue.service.js';
+import {
+  loadUserDisplaySummaries,
+  withUserDisplay,
+} from '../services/user-display.service.js';
 import { parseCsvDetailed, assertByteLimit, assertRowLimit } from '../services/csv-parser.service.js';
 import {
   ensureUploadDir,
@@ -94,8 +100,10 @@ const createCampaignSchema = z
 
 const chunkMemoryUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB per chunk limit
+  limits: { fileSize: 64 * 1024 * 1024 },
 });
+
+const MAX_ACCEPTED_CHUNK_BYTES = Math.min(64 * 1024 * 1024, env.IMPORT_CHUNK_SIZE_BYTES * 2 + 1024 * 1024);
 
 // POST /api/v1/campaigns/upload (direct streaming multipart upload for CSV and XLSX)
 router.post('/upload', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
@@ -156,13 +164,36 @@ router.put(
     if (req.is('multipart/form-data')) {
       chunkMemoryUpload.single('chunk')(req, res, next);
     } else {
+      const declaredLength = Number(req.headers['content-length'] || 0);
+      if (declaredLength > MAX_ACCEPTED_CHUNK_BYTES) {
+        return next(new AppError('Chunk exceeds the maximum allowed size.', 413, 'CHUNK_TOO_LARGE'));
+      }
       const chunks: Buffer[] = [];
-      req.on('data', (d) => chunks.push(d));
+      let received = 0;
+      let finished = false;
+      const fail = (err: any) => {
+        if (finished) return;
+        finished = true;
+        chunks.length = 0;
+        next(err);
+      };
+      req.on('data', (data: Buffer) => {
+        if (finished) return;
+        received += data.length;
+        if (received > MAX_ACCEPTED_CHUNK_BYTES) {
+          req.pause();
+          fail(new AppError('Chunk exceeds the maximum allowed size.', 413, 'CHUNK_TOO_LARGE'));
+          return;
+        }
+        chunks.push(data);
+      });
       req.on('end', () => {
+        if (finished) return;
+        finished = true;
         (req as any).rawBuffer = Buffer.concat(chunks);
         next();
       });
-      req.on('error', next);
+      req.on('error', fail);
     }
   },
   async (req: Request, res: Response, next: NextFunction) => {
@@ -406,7 +437,34 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       .limit(100)
       .lean();
 
-    res.status(200).json({ success: true, data: campaigns });
+    // Self-heal campaigns whose stored totalRecipients is 0 but recipients actually exist in the database
+    for (const campaign of campaigns) {
+      if (!campaign.stats || campaign.stats.totalRecipients === 0) {
+        const actualCount = await CampaignRecipient.countDocuments({
+          organizationId: req.organizationId,
+          campaignId: campaign._id,
+        });
+        if (actualCount > 0) {
+          await Campaign.updateOne(
+            { _id: campaign._id },
+            { $set: { 'stats.totalRecipients': actualCount } }
+          ).catch(() => {});
+          campaign.stats = { ...(campaign.stats || { prepared: 0, sent: 0, failed: 0, skipped: 0 }), totalRecipients: actualCount };
+        }
+      }
+    }
+
+    const userMap = await loadUserDisplaySummaries(
+      campaigns.map((campaign) => campaign.createdBy),
+      req.organizationId
+    );
+
+    res.status(200).json({
+      success: true,
+      data: campaigns.map((campaign) =>
+        withUserDisplay(campaign, 'createdBy', 'createdByUser', userMap)
+      ),
+    });
   } catch (err) {
     next(err);
   }
@@ -430,7 +488,29 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     const campaign = await Campaign.findOne({ _id: req.params.id, organizationId: req.organizationId }).lean();
     if (!campaign) throw new AppError('Campaign not found', 404, 'CAMPAIGN_NOT_FOUND');
 
-    res.status(200).json({ success: true, data: campaign });
+    if (!campaign.stats || campaign.stats.totalRecipients === 0) {
+      const actualCount = await CampaignRecipient.countDocuments({
+        organizationId: req.organizationId,
+        campaignId: campaign._id,
+      });
+      if (actualCount > 0) {
+        await Campaign.updateOne(
+          { _id: campaign._id },
+          { $set: { 'stats.totalRecipients': actualCount } }
+        ).catch(() => {});
+        campaign.stats = { ...(campaign.stats || { prepared: 0, sent: 0, failed: 0, skipped: 0 }), totalRecipients: actualCount };
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: withUserDisplay(
+        campaign,
+        'createdBy',
+        'createdByUser',
+        await loadUserDisplaySummaries([campaign.createdBy], req.organizationId)
+      ),
+    });
   } catch (err) {
     next(err);
   }
@@ -495,14 +575,25 @@ router.get('/:id/recipients', async (req: Request, res: Response, next: NextFunc
       ? await EmailDraft.find({ _id: { $in: draftIds }, organizationId: req.organizationId }).lean()
       : [];
     const draftMap = new Map(drafts.map((d: any) => [String(d._id), d]));
+    const userMap = await loadUserDisplaySummaries(
+      recipients.map((recipient) => recipient.addedBy),
+      req.organizationId
+    );
 
-    const enriched = recipients.map((r: any) => ({
-      ...r,
-      stepDrafts: (r.stepDrafts || []).map((d: any) => ({
-        ...d,
-        draft: d.draftId ? draftMap.get(String(d.draftId)) || null : null,
-      })),
-    }));
+    const enriched = recipients.map((r: any) =>
+      withUserDisplay(
+        {
+          ...r,
+          stepDrafts: (r.stepDrafts || []).map((d: any) => ({
+            ...d,
+            draft: d.draftId ? draftMap.get(String(d.draftId)) || null : null,
+          })),
+        },
+        'addedBy',
+        'addedByUser',
+        userMap
+      )
+    );
 
     res.status(200).json({
       success: true,
@@ -1031,9 +1122,23 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     const draftIds = recipients.flatMap((r: any) => (r.stepDrafts || []).map((d: any) => d.draftId)).filter(Boolean);
 
     await Promise.all([
-      draftIds.length ? EmailDraft.deleteMany({ _id: { $in: draftIds }, organizationId: req.organizationId }) : Promise.resolve(),
-      draftIds.length ? EmailSendAttempt.deleteMany({ draftId: { $in: draftIds }, organizationId: req.organizationId }) : Promise.resolve(),
+      EmailDraft.deleteMany({
+        organizationId: req.organizationId,
+        $or: [
+          { campaignId: campaign._id },
+          ...(draftIds.length ? [{ _id: { $in: draftIds } }] : []),
+        ],
+      }),
+      EmailSendAttempt.deleteMany({
+        organizationId: req.organizationId,
+        $or: [
+          { campaignId: campaign._id },
+          ...(draftIds.length ? [{ draftId: { $in: draftIds } }] : []),
+        ],
+      }),
       CampaignRecipient.deleteMany({ organizationId: req.organizationId, campaignId: campaign._id }),
+      CampaignImportJob.deleteMany({ organizationId: req.organizationId, campaignId: campaign._id }),
+      CampaignStagingContact.deleteMany({ organizationId: req.organizationId, campaignId: campaign._id }),
     ]);
     await Campaign.deleteOne({ _id: campaign._id, organizationId: req.organizationId });
 
@@ -1056,6 +1161,11 @@ router.get('/:id/export', async (req: Request, res: Response, next: NextFunction
       .sort({ rowNumber: 1 })
       .lean();
 
+    const userMap = await loadUserDisplaySummaries(
+      recipients.map((recipient) => recipient.addedBy),
+      req.organizationId
+    );
+
     const escapeCsv = (val: any) => {
       if (val === null || val === undefined) return '';
       const str = String(val);
@@ -1071,6 +1181,8 @@ router.get('/:id/export', async (req: Request, res: Response, next: NextFunction
       'Contact Name',
       'Email',
       'Status',
+      'Added By',
+      'Added At',
       'Completed Steps',
       'Last Sent At',
       'Replied',
@@ -1098,6 +1210,8 @@ router.get('/:id/export', async (req: Request, res: Response, next: NextFunction
         escapeCsv(r.name || ''),
         escapeCsv(r.email),
         escapeCsv(r.status),
+        escapeCsv(r.addedBy ? userMap.get(r.addedBy)?.fullName || userMap.get(r.addedBy)?.email || r.addedBy : ''),
+        escapeCsv(r.addedAt ? new Date(r.addedAt).toISOString() : ''),
         escapeCsv(r.completedSteps),
         escapeCsv(r.lastSentAt ? new Date(r.lastSentAt).toISOString() : ''),
         escapeCsv(r.replied ? 'Yes' : 'No'),

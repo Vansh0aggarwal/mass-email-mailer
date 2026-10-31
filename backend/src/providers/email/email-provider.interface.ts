@@ -3,7 +3,14 @@ export interface SendMessageOptions {
   cc?: string;
   bcc?: string;
   subject: string;
+  /** Plain-text body. Always sent as the accessible MIME alternative. */
   body: string;
+  /**
+   * Optional rendered HTML body. When present, providers send a
+   * multipart/alternative message so every client can choose the best format.
+   * The renderer escapes operator content; providers still treat it as data.
+   */
+  html?: string;
   inReplyTo?: string;
   references?: string;
   threadId?: string;

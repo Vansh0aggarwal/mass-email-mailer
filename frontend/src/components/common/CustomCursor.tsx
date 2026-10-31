@@ -22,8 +22,8 @@ const SCALE_REST = 0.002;
 const SCALE_VELOCITY_REST = 0.05;
 
 /**
- * A single solid #CCD0CF dot that follows the pointer. It grows to 17px over
- * anything interactive and to 25px while the primary button is held.
+ * A single solid #CCD0CF dot that follows the pointer. It grows by 2px over
+ * anything interactive and by 3px while the primary button is held.
  *
  * Performance: React never re-renders on pointer movement. Listeners only
  * record the pointer target; one requestAnimationFrame loop eases the anchor
@@ -31,9 +31,11 @@ const SCALE_VELOCITY_REST = 0.05;
  * transforms directly to the DOM. The loop parks itself once position and
  * scale are at rest, so an idle cursor costs nothing.
  *
- * The native cursor is only removed once the capability checks pass, and it
- * is restored for text fields, selectable regions, disabled controls,
- * draggable elements and native resize handles via the stylesheet.
+ * The dot is the primary cursor on every fine-pointer device. Reduced motion
+ * keeps it but drops the animation: position and scale snap instead of easing.
+ * Touch and coarse pointers keep the platform cursor, which is also restored
+ * for text fields, selectable regions, disabled controls, draggable elements
+ * and native resize handles via the stylesheet.
  */
 export function CustomCursor() {
   const location = useLocation();
@@ -42,14 +44,19 @@ export function CustomCursor() {
   const dotRef = useRef<HTMLDivElement | null>(null);
   const reevaluateRef = useRef<(() => void) | null>(null);
   const [enabled, setEnabled] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
-  // Touch devices and reduced-motion users never get the custom cursor.
+  // The dot needs a fine pointer to track; motion preference only changes how
+  // it moves, not whether it exists.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
 
     const pointerQuery = window.matchMedia(CURSOR_POINTER_QUERY);
     const motionQuery = window.matchMedia(REDUCED_MOTION_QUERY);
-    const sync = () => setEnabled(pointerQuery.matches && !motionQuery.matches);
+    const sync = () => {
+      setEnabled(pointerQuery.matches);
+      setReducedMotion(motionQuery.matches);
+    };
 
     sync();
     pointerQuery.addEventListener('change', sync);
@@ -71,6 +78,9 @@ export function CustomCursor() {
 
     const root = document.documentElement;
     root.dataset.cursor = 'custom';
+
+    // Reduced motion keeps the dot but removes every easing step.
+    const animate = !reducedMotion;
 
     let visible = false;
     let placed = false;
@@ -153,7 +163,7 @@ export function CustomCursor() {
     };
 
     const wake = () => {
-      if (frame !== 0) return;
+      if (!animate || frame !== 0) return;
       lastFrame = performance.now();
       frame = requestAnimationFrame(tick);
     };
@@ -162,7 +172,13 @@ export function CustomCursor() {
       const next = resolveCursorScale(state, pressed);
       if (next === scaleTarget) return;
       scaleTarget = next;
-      wake();
+      if (animate) {
+        wake();
+      } else {
+        scale = scaleTarget;
+        scaleVelocity = 0;
+        paint();
+      }
     };
 
     const setVisible = (next: boolean) => {
@@ -187,9 +203,11 @@ export function CustomCursor() {
 
     const evaluate = (target: Element | null) => {
       if (!target || !target.isConnected) {
+        lastTarget = null;
         setState('default');
         return;
       }
+      lastTarget = target;
       setState(
         resolveCursorState({
           isEmbedded: target.closest(EMBEDDED_SELECTOR) !== null,
@@ -228,7 +246,7 @@ export function CustomCursor() {
     const trackPointer = (event: PointerEvent) => {
       pointerX = event.clientX;
       pointerY = event.clientY;
-      if (!placed || !visible) {
+      if (!animate || !placed || !visible) {
         snapToPointer();
         placed = true;
       }
@@ -244,7 +262,7 @@ export function CustomCursor() {
       const target = event.target;
       if (target instanceof Element && target !== lastTarget) evaluate(target);
 
-      if (!wasVisible) settleScale();
+      if (!animate || !wasVisible) settleScale();
       wake();
     };
 
@@ -262,7 +280,7 @@ export function CustomCursor() {
       evaluate(event.target instanceof Element ? event.target : null);
       setPressed(true);
       setVisible(true);
-      if (!wasVisible) settleScale();
+      if (!animate || !wasVisible) settleScale();
       wake();
     };
 
@@ -336,7 +354,7 @@ export function CustomCursor() {
       reevaluateRef.current = null;
       lastTarget = null;
     };
-  }, [enabled]);
+  }, [enabled, reducedMotion]);
 
   // A route change replaces the markup underneath a stationary pointer.
   useEffect(() => {

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Company } from '../types';
+import { companySourceLabel, displayUserName, formatAuditDate } from '../lib/ownership';
 
 interface CompanyDetail extends Company {
   contacts?: {
@@ -224,6 +225,26 @@ export function CompanyDetailPage() {
                 <span>{address}</span>
               </div>
             )}
+            <div className="pt-3 mt-1 border-t border-line space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ink-subtle">Created by</span>
+                <span className="font-medium text-ink text-right truncate">
+                  {displayUserName(company.createdByUser, company.createdBy)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ink-subtle">Source</span>
+                <span className="font-medium text-ink text-right">
+                  {companySourceLabel(company.createdVia)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ink-subtle">Created</span>
+                <span className="font-medium text-ink tabular-nums text-right">
+                  {formatAuditDate(company.createdAt)}
+                </span>
+              </div>
+            </div>
             <Link
               to="/email"
               className="mt-1 block text-center px-3 py-2 rounded-xl border border-line hover:border-accent hover:text-accent text-ink-muted font-medium transition-colors"

@@ -13,19 +13,26 @@
 /** Only devices with a precise pointer and real hover get the custom cursor. */
 export const CURSOR_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 
-/** Users who prefer reduced motion keep the native cursor. */
+/** Reduced motion keeps the dot, but every state change is instant. */
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 /** The four visual states the dot can be in. */
 export type CursorState = 'default' | 'hover' | 'native' | 'hidden';
 
-/** The one allowed ink, from the application palette. */
+/** The dot ink on dark surfaces, from the application palette. */
 export const CURSOR_COLOR = '#CCD0CF';
+
+/**
+ * The dot ink on light surfaces. #CCD0CF is nearly invisible on a white
+ * canvas, so light mode uses the palette's elevated surface instead.
+ */
+export const CURSOR_LIGHT_INK = '#11212D';
 
 /** Geometry, in CSS pixels. */
 export const CURSOR_SIZE = 10;
-export const CURSOR_HOVER_SIZE = 17;
-export const CURSOR_PRESS_SIZE = 25;
+/** Hover adds 2px; pressing adds 3px — deliberately subtle growth. */
+export const CURSOR_HOVER_SIZE = CURSOR_SIZE + 2;
+export const CURSOR_PRESS_SIZE = CURSOR_SIZE + 3;
 
 /**
  * The sizes are reached by scaling the 10px dot, so the browser only ever
@@ -105,20 +112,6 @@ export const INTERACTIVE_SELECTOR = [
   '.cursor-pointer',
   '[data-cursor="interactive"]',
 ].join(', ');
-
-/** Input types that are a control rather than a text field. */
-export const NON_TEXT_INPUT_TYPES: readonly string[] = [
-  'button',
-  'submit',
-  'reset',
-  'checkbox',
-  'radio',
-  'range',
-  'color',
-  'file',
-  'image',
-  'hidden',
-];
 
 /**
  * Text editing keeps the native I-beam: a solid dot cannot communicate where

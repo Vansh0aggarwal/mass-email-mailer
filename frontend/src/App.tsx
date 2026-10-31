@@ -16,6 +16,7 @@ import { CustomCursor } from './components/common/CustomCursor';
 const DashboardPage      = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const EmailWorkspacePage = lazy(() => import('./pages/EmailWorkspacePage').then(m => ({ default: m.EmailWorkspacePage })));
 const AiStudioPage       = lazy(() => import('./pages/AiStudioPage').then(m => ({ default: m.AiStudioPage })));
+const EmailDesignStudioPage = lazy(() => import('./pages/EmailDesignStudioPage').then(m => ({ default: m.EmailDesignStudioPage })));
 const CompaniesPage      = lazy(() => import('./pages/CompaniesPage').then(m => ({ default: m.CompaniesPage })));
 const CompanyDetailPage  = lazy(() => import('./pages/CompanyDetailPage').then(m => ({ default: m.CompanyDetailPage })));
 const ContactsPage       = lazy(() => import('./pages/ContactsPage').then(m => ({ default: m.ContactsPage })));
@@ -27,6 +28,9 @@ const FollowUpsPage      = lazy(() => import('./pages/FollowUpsPage').then(m => 
 const CampaignsPage      = lazy(() => import('./pages/CampaignsPage').then(m => ({ default: m.CampaignsPage })));
 const CampaignNewPage    = lazy(() => import('./pages/CampaignNewPage').then(m => ({ default: m.CampaignNewPage })));
 const CampaignDetailPage = lazy(() => import('./pages/CampaignDetailPage').then(m => ({ default: m.CampaignDetailPage })));
+const CampaignSplitsPage = lazy(() => import('./pages/CampaignSplitsPage').then(m => ({ default: m.CampaignSplitsPage })));
+const CampaignSplitNewPage = lazy(() => import('./pages/CampaignSplitNewPage').then(m => ({ default: m.CampaignSplitNewPage })));
+const CampaignSplitDetailPage = lazy(() => import('./pages/CampaignSplitDetailPage').then(m => ({ default: m.CampaignSplitDetailPage })));
 const AnalyticsPage      = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
 const ServicesPage       = lazy(() => import('./pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
 const IntegrationsPage   = lazy(() => import('./pages/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
@@ -70,6 +74,7 @@ export function App() {
                 <Route path="dashboard" element={<Suspense fallback={<PageLoader />}><DashboardPage /></Suspense>} />
                 <Route path="email" element={<Suspense fallback={<PageLoader />}><EmailWorkspacePage /></Suspense>} />
                 <Route path="ai-studio" element={<Suspense fallback={<PageLoader />}><AiStudioPage /></Suspense>} />
+                <Route path="email-studio" element={<Suspense fallback={<PageLoader />}><EmailDesignStudioPage /></Suspense>} />
                 <Route path="companies" element={<Suspense fallback={<PageLoader />}><CompaniesPage /></Suspense>} />
                 <Route path="companies/:id" element={<Suspense fallback={<PageLoader />}><CompanyDetailPage /></Suspense>} />
                 <Route path="contacts" element={<Suspense fallback={<PageLoader />}><ContactsPage /></Suspense>} />
@@ -80,6 +85,9 @@ export function App() {
                 <Route path="follow-ups" element={<Suspense fallback={<PageLoader />}><FollowUpsPage /></Suspense>} />
                 <Route path="campaigns" element={<Suspense fallback={<PageLoader />}><CampaignsPage /></Suspense>} />
                 <Route path="campaigns/new" element={<Suspense fallback={<PageLoader />}><CampaignNewPage /></Suspense>} />
+                <Route path="campaigns/splits" element={<Suspense fallback={<PageLoader />}><CampaignSplitsPage /></Suspense>} />
+                <Route path="campaigns/splits/new" element={<Suspense fallback={<PageLoader />}><CampaignSplitNewPage /></Suspense>} />
+                <Route path="campaigns/splits/:id" element={<Suspense fallback={<PageLoader />}><CampaignSplitDetailPage /></Suspense>} />
                 <Route path="campaigns/:id" element={<Suspense fallback={<PageLoader />}><CampaignDetailPage /></Suspense>} />
                 <Route path="analytics" element={<Suspense fallback={<PageLoader />}><AnalyticsPage /></Suspense>} />
                 <Route path="deliverability" element={<Suspense fallback={<PageLoader />}><DeliverabilityPage /></Suspense>} />
@@ -97,5 +105,3 @@ export function App() {
     </QueryClientProvider>
   );
 }
-
-export default App;

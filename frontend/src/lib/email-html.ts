@@ -87,13 +87,6 @@ export function base64UrlToDataUrl(data: string, mimeType = 'image/png'): string
   return `data:${mimeType || 'image/png'};base64,${b64}`;
 }
 
-const TRANSPARENT_PIXEL_URI =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-
-export interface EmailHtmlOptionsInternal extends EmailHtmlOptions {
-  _transparentPixel?: string;
-}
-
 /**
  * Sanitizes untrusted email HTML and resolves inline/remote images.
  *
@@ -141,7 +134,7 @@ export function sanitizeEmailHtml(raw: string, options: EmailHtmlOptions = {}): 
 
   const cidMap = options.cidMap || {};
   const showImages = options.showImages ?? false;
-  const pixel = TRANSPARENT_PIXEL_URI;
+  const pixel = TRANSPARENT_PIXEL;
 
   // Resolve cid: images and apply the remote-image policy.
   html = html.replace(/<img\b[^>]*>/gi, (tag) => {
@@ -204,7 +197,8 @@ export function buildEmailDocument(bodyHtml: string, opts: { dark?: boolean } = 
     table{max-width:100%;border-collapse:collapse;}
     blockquote{margin:0;padding-left:12px;border-left:2px solid ${quote}55;color:${quote};}
     pre,code{white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
-    *{max-width:100%;}
+    *{max-width:100%;scrollbar-width:none;-ms-overflow-style:none;}
+    *::-webkit-scrollbar{display:none;width:0;height:0;}
   `;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="${
     dark ? 'dark' : 'light'

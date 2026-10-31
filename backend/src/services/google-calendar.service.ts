@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import crypto from 'crypto';
 import { env } from '../config/env.js';
 import { CalendarAccount } from '../models/CalendarAccount.js';
-import { encryptToken, decryptToken } from '../utils/crypto.js';
+import { decryptToken } from '../utils/crypto.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 export interface MeetingClarification {
@@ -45,6 +45,13 @@ export interface CreatedEventResult {
   provider: 'google' | 'mock';
 }
 
+export interface GoogleCalendarSummary {
+  id: string;
+  summary: string;
+  primary: boolean;
+  timeZone?: string;
+}
+
 export class GoogleCalendarService {
   private getCalendarOAuthClient() {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
@@ -65,10 +72,11 @@ export class GoogleCalendarService {
       prompt: 'select_account consent',
       scope: [
         'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/tasks',
         'https://www.googleapis.com/auth/userinfo.email',
         'https://www.googleapis.com/auth/userinfo.profile',
       ],
-      login_hint: loginHint,
+      ...(loginHint ? { login_hint: loginHint } : {}),
       state,
     });
   }
@@ -194,8 +202,8 @@ export class GoogleCalendarService {
 
     // Find authorized calendar connection for tenant
     const account = calendarAccountId
-      ? await CalendarAccount.findOne({ _id: calendarAccountId, organizationId })
-      : await CalendarAccount.findOne({ organizationId, status: 'connected' });
+      ? await CalendarAccount.findOne({ _id: calendarAccountId, organizationId, userId })
+      : await CalendarAccount.findOne({ organizationId, userId, status: 'connected' });
 
     // If real Google account is connected and tokens exist
     if (account && account.provider === 'google' && account.encryptedRefreshToken) {
@@ -223,7 +231,7 @@ export class GoogleCalendarService {
         }
 
         const res = await calendar.events.insert({
-          calendarId: 'primary',
+          calendarId: account.calendarId || 'primary',
           requestBody,
           conferenceDataVersion: addMeetLink ? 1 : 0,
           sendUpdates: 'all',
@@ -265,6 +273,204 @@ export class GoogleCalendarService {
       attendees,
       provider: 'mock',
     };
+  }
+
+  private async findConnectedGoogleAccount(options: {
+    organizationId: string;
+    userId: string;
+    calendarAccountId?: string;
+  }): Promise<any> {
+    const account = options.calendarAccountId
+      ? await CalendarAccount.findOne({
+          _id: options.calendarAccountId,
+          organizationId: options.organizationId,
+          userId: options.userId,
+        })
+      : await CalendarAccount.findOne({
+          organizationId: options.organizationId,
+          userId: options.userId,
+          status: 'connected',
+        });
+
+    if (!account || account.provider !== 'google' || !account.encryptedRefreshToken) {
+      throw new AppError(
+        'Connect a Google account before synchronizing calendar events.',
+        400,
+        'GOOGLE_NOT_CONNECTED'
+      );
+    }
+    return account;
+  }
+
+  private googleCalendarClient(account: any) {
+    const client = this.getCalendarOAuthClient();
+    client.setCredentials({ refresh_token: decryptToken(account.encryptedRefreshToken) });
+    return google.calendar({ version: 'v3', auth: client });
+  }
+
+  /** Lists the calendars the connected account can write to. */
+  public async listCalendars(options: {
+    organizationId: string;
+    userId: string;
+    calendarAccountId?: string;
+  }): Promise<GoogleCalendarSummary[]> {
+    const account = await this.findConnectedGoogleAccount(options);
+    try {
+      const calendar = this.googleCalendarClient(account);
+      const res = await calendar.calendarList.list({ maxResults: 100 });
+      return (res.data.items || [])
+        .filter((item) => item.id)
+        .map((item) => ({
+          id: item.id as string,
+          summary: item.summaryOverride || item.summary || (item.id as string),
+          primary: Boolean(item.primary),
+          timeZone: item.timeZone || undefined,
+        }));
+    } catch (err: any) {
+      throw new AppError(`Google Calendar provider error: ${err.message}`, 502, 'CALENDAR_PROVIDER_ERROR');
+    }
+  }
+
+  /** Updates an existing event for a task, optionally requesting a Meet link. */
+  public async updateCalendarEvent(options: {
+    organizationId: string;
+    userId: string;
+    calendarAccountId?: string;
+    eventId: string;
+    calendarId?: string;
+    summary: string;
+    description?: string;
+    startTime: string;
+    endTime: string;
+    timezone: string;
+    addMeetLink?: boolean;
+    removeMeet?: boolean;
+  }): Promise<{ eventId: string; meetLink?: string }> {
+    const account = await this.findConnectedGoogleAccount(options);
+    try {
+      const calendar = this.googleCalendarClient(account);
+      const requestBody: any = {
+        summary: options.summary,
+        description: options.description || '',
+        start: { dateTime: options.startTime, timeZone: options.timezone },
+        end: { dateTime: options.endTime, timeZone: options.timezone },
+      };
+
+      if (options.addMeetLink) {
+        requestBody.conferenceData = {
+          createRequest: {
+            requestId: `meet_${crypto.randomBytes(8).toString('hex')}`,
+            conferenceSolutionKey: { type: 'hangoutsMeet' },
+          },
+        };
+      } else if (options.removeMeet) {
+        // Google removes conference data when it is patched to null.
+        requestBody.conferenceData = null;
+      }
+
+      const res = await calendar.events.patch({
+        calendarId: options.calendarId || account.calendarId || 'primary',
+        eventId: options.eventId,
+        requestBody,
+        conferenceDataVersion: options.addMeetLink || options.removeMeet ? 1 : 0,
+      });
+
+      return {
+        eventId: res.data.id || options.eventId,
+        meetLink:
+          res.data.conferenceData?.entryPoints?.find(
+            (entry: any) => entry.entryPointType === 'video'
+          )?.uri || undefined,
+      };
+    } catch (err: any) {
+      if (err?.code === 404 || err?.status === 404) {
+        throw new AppError('Calendar event no longer exists', 404, 'CALENDAR_EVENT_NOT_FOUND');
+      }
+      throw new AppError(`Google Calendar provider error: ${err.message}`, 502, 'CALENDAR_PROVIDER_ERROR');
+    }
+  }
+
+  /** Incremental event listing used by task/calendar two-way sync. */
+  public async listEventChanges(options: {
+    organizationId: string;
+    userId: string;
+    calendarAccountId?: string;
+    syncToken?: string;
+    timeMin?: string;
+    timeMax?: string;
+  }): Promise<{
+    events: Array<{
+      id: string;
+      status?: string;
+      summary?: string;
+      description?: string;
+      startDateTime?: string;
+      endDateTime?: string;
+      timeZone?: string;
+      meetLink?: string;
+      updated?: string;
+    }>;
+    nextSyncToken?: string;
+  }> {
+    const account = await this.findConnectedGoogleAccount(options);
+    try {
+      const calendar = this.googleCalendarClient(account);
+      const res = await calendar.events.list({
+        calendarId: account.calendarId || 'primary',
+        ...(options.syncToken
+          ? { syncToken: options.syncToken }
+          : { timeMin: options.timeMin, timeMax: options.timeMax }),
+        showDeleted: true,
+        singleEvents: true,
+        maxResults: 250,
+      });
+
+      return {
+        events: (res.data.items || [])
+          .filter((event) => event.id)
+          .map((event) => ({
+            id: event.id as string,
+            status: event.status || undefined,
+            summary: event.summary || undefined,
+            description: event.description || undefined,
+            startDateTime: event.start?.dateTime || event.start?.date || undefined,
+            endDateTime: event.end?.dateTime || event.end?.date || undefined,
+            timeZone: event.start?.timeZone || undefined,
+            meetLink:
+              event.conferenceData?.entryPoints?.find(
+                (entry: any) => entry.entryPointType === 'video'
+              )?.uri || undefined,
+            updated: event.updated || undefined,
+          })),
+        nextSyncToken: res.data.nextSyncToken || undefined,
+      };
+    } catch (err: any) {
+      if (err?.code === 410 || err?.status === 410) {
+        throw new AppError('Calendar sync token expired', 410, 'CALENDAR_SYNC_EXPIRED');
+      }
+      throw new AppError(`Google Calendar provider error: ${err.message}`, 502, 'CALENDAR_PROVIDER_ERROR');
+    }
+  }
+
+  /** Removes a time block that belonged to a deleted task. */
+  public async deleteCalendarEvent(options: {
+    organizationId: string;
+    userId: string;
+    calendarAccountId?: string;
+    calendarId?: string;
+    eventId: string;
+  }): Promise<void> {
+    const account = await this.findConnectedGoogleAccount(options);
+    try {
+      const calendar = this.googleCalendarClient(account);
+      await calendar.events.delete({
+        calendarId: options.calendarId || account.calendarId || 'primary',
+        eventId: options.eventId,
+      });
+    } catch (err: any) {
+      if (err?.code === 404 || err?.status === 404) return;
+      throw new AppError(`Google Calendar provider error: ${err.message}`, 502, 'CALENDAR_PROVIDER_ERROR');
+    }
   }
 }
 

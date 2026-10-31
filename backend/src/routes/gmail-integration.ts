@@ -134,7 +134,7 @@ router.get('/connect', requireAuth, (req: Request, res: Response, next: NextFunc
  * GET /api/v1/integrations/google/gmail/callback
  * Exchanges code for Gmail tokens, encrypts credentials, stores EmailAccount and runs initial sync
  */
-router.get('/callback', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/callback', async (req: Request, res: Response) => {
   try {
     const { code, state, error } = req.query;
 

@@ -424,7 +424,7 @@ export function EmailWorkspacePage() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-7.5rem)] lg:h-[calc(100vh-6.5rem)] ios-card overflow-hidden border border-line bg-surface">
+    <div className="flex h-full min-h-0 flex-col ios-card overflow-hidden border border-line bg-surface">
       {/* Account status toolbar */}
       <div className="bg-surface-2 px-4 py-2 border-b border-line flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
         <div className="flex items-center gap-2 min-w-0">

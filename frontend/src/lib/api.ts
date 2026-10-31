@@ -1,14 +1,3 @@
-export interface ApiResponse<T = any> {
-  success: boolean;
-  data: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: any;
-    issues?: { path: string; message: string }[];
-  };
-}
-
 export class ApiError extends Error {
   public code: string;
   public details?: any;
@@ -25,19 +14,27 @@ export class ApiError extends Error {
 
 const BASE_URL = '/api/v1';
 
+/**
+ * Builds authenticated request headers.
+ *
+ * Only forwards a real bearer token: the HttpOnly session cookie is the source
+ * of truth, and stale localStorage ids (e.g. non-ObjectId dev-mock values) must
+ * not be sent as identity headers.
+ */
+export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = localStorage.getItem('radar_token');
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extra,
+  };
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
-  const token = localStorage.getItem('radar_token');
-
-  // Only forward a real bearer token. The HttpOnly session cookie is the source
-  // of truth; stale localStorage ids (e.g. dev-mock values that are not valid
-  // ObjectIds) must never be sent as x-user-id / x-organization-id identity
-  // headers, which caused spurious 400s and phantom sessions.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers as Record<string, string>),
+    ...authHeaders(options.headers as Record<string, string>),
   };
 
   const response = await fetch(url, {
@@ -142,16 +139,28 @@ export const api = {
       chunkSize?: number;
       onProgress?: (progress: ChunkedUploadProgress) => void;
       signal?: AbortSignal;
+      /** API mount point that owns the upload endpoints (default: campaigns). */
+      basePath?: string;
+      /** Continue an existing upload session instead of creating a new one. */
+      resumeUploadId?: string;
+      /**
+       * `pause` keeps the server session alive so the same file can resume;
+       * `cancel` (default) deletes it.
+       */
+      abortMode?: 'cancel' | 'pause';
+      /** Reports the session id as soon as it exists, for pause/resume UIs. */
+      onSession?: (uploadId: string) => void;
     } = {}
   ): Promise<ChunkedUploadResult> => {
     const token = localStorage.getItem('radar_token');
     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const basePath = options.basePath || '/campaigns';
 
     // For files smaller than 10MB, single direct multipart upload is faster
     if (file.size <= 10 * 1024 * 1024) {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await api.upload<ChunkedUploadResult>('/campaigns/upload', formData, { signal: options.signal });
+      const res = await api.upload<ChunkedUploadResult>(`${basePath}/upload`, formData, { signal: options.signal });
       if (options.onProgress) {
         options.onProgress({
           uploadedBytes: file.size,
@@ -169,37 +178,49 @@ export const api = {
     const CHUNK_SIZE = options.chunkSize || 10 * 1024 * 1024; // 10 MB chunks
     const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
 
-    // 1. Initialize upload session
-    const initRes = await fetch(`${BASE_URL}/campaigns/upload/init`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders,
-      },
-      credentials: 'include',
-      signal: options.signal,
-      body: JSON.stringify({
-        fileName: file.name,
-        fileSize: file.size,
-        chunkSize: CHUNK_SIZE,
-      }),
-    });
+    // 1. Initialize (or reuse) the upload session
+    let uploadId = options.resumeUploadId;
+    if (!uploadId) {
+      const initRes = await fetch(`${BASE_URL}${basePath}/upload/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        credentials: 'include',
+        signal: options.signal,
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          chunkSize: CHUNK_SIZE,
+        }),
+      });
 
-    const initJson = await initRes.json();
-    if (!initRes.ok) {
-      throw new ApiError(
-        initJson?.error?.message || 'Failed to initialize chunked upload',
-        initJson?.error?.code || 'INIT_FAILED',
-        initRes.status
-      );
+      const initJson = await initRes.json();
+      if (!initRes.ok) {
+        throw new ApiError(
+          initJson?.error?.message || 'Failed to initialize chunked upload',
+          initJson?.error?.code || 'INIT_FAILED',
+          initRes.status
+        );
+      }
+      uploadId = initJson.data.uploadId as string;
+      options.onSession?.(uploadId);
     }
 
-    const uploadId = initJson.data.uploadId;
+    const discardSession = async () => {
+      if (options.abortMode === 'pause') return;
+      await fetch(`${BASE_URL}${basePath}/upload/${uploadId}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+        credentials: 'include',
+      }).catch(() => {});
+    };
 
     // 2. Check resume status
     let alreadyReceived: Set<number> = new Set();
     try {
-      const statusRes = await fetch(`${BASE_URL}/campaigns/upload/${uploadId}/status`, {
+      const statusRes = await fetch(`${BASE_URL}${basePath}/upload/${uploadId}/status`, {
         headers: authHeaders,
         credentials: 'include',
         signal: options.signal,
@@ -224,11 +245,7 @@ export const api = {
     // 3. Upload chunk slices with retry backoff
     for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
       if (options.signal?.aborted) {
-        await fetch(`${BASE_URL}/campaigns/upload/${uploadId}`, {
-          method: 'DELETE',
-          headers: authHeaders,
-          credentials: 'include',
-        }).catch(() => {});
+        await discardSession();
         throw new DOMException('Upload aborted by user', 'AbortError');
       }
 
@@ -246,7 +263,7 @@ export const api = {
 
       for (let attempt = 1; attempt <= 3; attempt++) {
         if (options.signal?.aborted) {
-          await fetch(`${BASE_URL}/campaigns/upload/${uploadId}`, {
+          await fetch(`${BASE_URL}${basePath}/upload/${uploadId}`, {
             method: 'DELETE',
             headers: authHeaders,
             credentials: 'include',
@@ -256,7 +273,7 @@ export const api = {
 
         try {
           const chunkRes = await fetch(
-            `${BASE_URL}/campaigns/upload/${uploadId}/chunk?chunkIndex=${chunkIdx}`,
+            `${BASE_URL}${basePath}/upload/${uploadId}/chunk?chunkIndex=${chunkIdx}`,
             {
               method: 'PUT',
               headers: {
@@ -279,11 +296,7 @@ export const api = {
           }
         } catch (e: any) {
           if (e?.name === 'AbortError' || options.signal?.aborted) {
-            await fetch(`${BASE_URL}/campaigns/upload/${uploadId}`, {
-              method: 'DELETE',
-              headers: authHeaders,
-              credentials: 'include',
-            }).catch(() => {});
+            await discardSession();
             throw e;
           }
           lastErr = e;
@@ -321,7 +334,7 @@ export const api = {
     }
 
     // 4. Finalize assembled file and get preview inspection
-    const completeRes = await fetch(`${BASE_URL}/campaigns/upload/${uploadId}/complete`, {
+    const completeRes = await fetch(`${BASE_URL}${basePath}/upload/${uploadId}/complete`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

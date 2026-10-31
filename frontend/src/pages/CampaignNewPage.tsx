@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Upload, Gauge, Zap } from 'lucide-react';
 import { api, ChunkedUploadProgress } from '../lib/api';
-import { CampaignPreview, EmailAccount, SenderAccount, WorkspaceSettings } from '../types';
+import { CampaignPreview, CustomFieldRow, EmailAccount, SenderAccount, WorkspaceSettings } from '../types';
 import {
   FIXED_FIELD_DEFS,
   buildAvailableTokens,
@@ -12,17 +12,12 @@ import {
   normalizeTokenKey,
 } from '../lib/campaign';
 import { CampaignCreationProgressModal } from '../components/campaigns/CampaignCreationProgressModal';
+import { mailKeys } from '../lib/mail';
 
 interface StepForm {
   subject: string;
   bodyText: string;
   delayDays: number;
-}
-
-interface CustomFieldRow {
-  source: string;
-  target: string;
-  enabled: boolean;
 }
 
 const PHASES = ['Upload', 'Map columns', 'Compose steps', 'Review & create'];
@@ -69,7 +64,7 @@ export function CampaignNewPage() {
   }, []);
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['mailboxes'],
+    queryKey: mailKeys.mailboxes,
     queryFn: () => api.get<EmailAccount[]>('/mailboxes'),
   });
 

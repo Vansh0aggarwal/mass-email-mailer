@@ -8,6 +8,7 @@ import { emailSendPipelineService } from '../services/email-send-pipeline.servic
 import { gmailProvider, isInvalidGrantError } from '../providers/email/gmail.provider.js';
 import { gmailQuotaService, GMAIL_METHOD_QUOTA_COST } from '../services/gmail-quota.service.js';
 import { mockEmailProvider } from '../providers/email/mock-email.provider.js';
+import { isSmtpConfigured, smtpEmailProvider } from '../providers/email/smtp.provider.js';
 import { requireAuth } from '../middleware/session.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { inboxCopilotService, CopilotTone } from '../services/inbox-copilot.service.js';
@@ -16,8 +17,6 @@ const router = Router();
 
 const defaultMailboxEmail = 'outreach@swaniki.dev';
 const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-
-type MailFolder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'spam' | 'trash' | 'all';
 
 function folderQuery(folder: string): Record<string, any> {
   switch (folder) {
@@ -669,6 +668,25 @@ router.post('/:id/threads/:threadId/reply', async (req: Request, res: Response, 
         req.organizationId
       );
       messageId = sendResult.messageId;
+    } else if (mailbox?.provider === 'smtp') {
+      if (!isSmtpConfigured()) {
+        throw new AppError('SMTP delivery is not configured on this server', 400, 'SMTP_NOT_CONFIGURED');
+      }
+      const sendResult = await smtpEmailProvider.sendMessage(
+        mailboxEmail,
+        {
+          to: recipientEmail,
+          cc: cc?.trim() || undefined,
+          bcc: bcc?.trim() || undefined,
+          subject: replySubject,
+          body: bodyText,
+          inReplyTo: lastMsgId,
+          references: (lastMessage as any)?.references || lastMsgId,
+          threadId: thread.threadId,
+        },
+        req.organizationId
+      );
+      messageId = sendResult.messageId;
     }
 
     const now = new Date();
@@ -761,6 +779,20 @@ router.post('/:id/messages', async (req: Request, res: Response, next: NextFunct
       providerMessageId = result.messageId;
       providerThreadId = result.threadId;
       isSimulated = result.isSimulated;
+      mailbox.sendsToday += 1;
+      await mailbox.save();
+    } else if (mailbox.provider === 'smtp') {
+      if (!isSmtpConfigured()) {
+        throw new AppError('SMTP delivery is not configured on this server', 400, 'SMTP_NOT_CONFIGURED');
+      }
+      const result = await smtpEmailProvider.sendMessage(
+        mailboxEmail,
+        { to, cc: cc?.trim() || undefined, bcc: bcc?.trim() || undefined, subject, body },
+        req.organizationId
+      );
+      providerMessageId = result.messageId;
+      providerThreadId = result.threadId;
+      isSimulated = false;
       mailbox.sendsToday += 1;
       await mailbox.save();
     } else {

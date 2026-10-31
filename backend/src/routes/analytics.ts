@@ -1,7 +1,20 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { AnalyticsService } from '../services/analytics.service.js';
+import { AnalyticsService, type AnalyticsQueryFilters } from '../services/analytics.service.js';
 
 const router = Router();
+
+/** Coerces repeated query params into the single string values the service accepts. */
+function parseFilters(query: Request['query']): AnalyticsQueryFilters {
+  const { range, startDate, endDate, campaignId, step, status } = query;
+  return {
+    range: typeof range === 'string' ? range : '30d',
+    startDate: typeof startDate === 'string' ? startDate : undefined,
+    endDate: typeof endDate === 'string' ? endDate : undefined,
+    campaignId: typeof campaignId === 'string' ? campaignId : undefined,
+    step: typeof step === 'string' ? step : undefined,
+    status: typeof status === 'string' ? status : undefined,
+  };
+}
 
 /**
  * GET /api/v1/analytics/overview
@@ -21,16 +34,7 @@ router.get('/overview', async (req: Request, res: Response, next: NextFunction) 
       return;
     }
 
-    const { range, startDate, endDate, campaignId, step, status } = req.query;
-
-    const data = await AnalyticsService.getOverview(orgId, {
-      range: typeof range === 'string' ? range : '30d',
-      startDate: typeof startDate === 'string' ? startDate : undefined,
-      endDate: typeof endDate === 'string' ? endDate : undefined,
-      campaignId: typeof campaignId === 'string' ? campaignId : undefined,
-      step: typeof step === 'string' ? step : undefined,
-      status: typeof status === 'string' ? status : undefined,
-    });
+    const data = await AnalyticsService.getOverview(orgId, parseFilters(req.query));
 
     res.status(200).json({
       success: true,
@@ -53,16 +57,7 @@ router.get('/export', async (req: Request, res: Response, next: NextFunction) =>
       return;
     }
 
-    const { range, startDate, endDate, campaignId, step, status } = req.query;
-
-    const csvContent = await AnalyticsService.generateCsvExport(orgId, {
-      range: typeof range === 'string' ? range : '30d',
-      startDate: typeof startDate === 'string' ? startDate : undefined,
-      endDate: typeof endDate === 'string' ? endDate : undefined,
-      campaignId: typeof campaignId === 'string' ? campaignId : undefined,
-      step: typeof step === 'string' ? step : undefined,
-      status: typeof status === 'string' ? status : undefined,
-    });
+    const csvContent = await AnalyticsService.generateCsvExport(orgId, parseFilters(req.query));
 
     const filename = `swaniki-analytics-${new Date().toISOString().split('T')[0]}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

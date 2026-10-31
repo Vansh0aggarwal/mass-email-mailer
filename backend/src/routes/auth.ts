@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { env } from '../config/env.js';
-import { User, IUser, normalizeUserStatus } from '../models/User.js';
+import { User, normalizeUserStatus } from '../models/User.js';
 import { Organization } from '../models/Organization.js';
 import {
   googleOAuthService,
@@ -14,7 +14,6 @@ import {
   revokeSession,
   OAUTH_STATE_COOKIE_NAME,
   getStateCookieOptions,
-  requireAuth,
   signSessionToken,
 } from '../middleware/session.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -53,7 +52,7 @@ router.get('/google', (req: Request, res: Response, next: NextFunction) => {
  * GET /api/v1/auth/google/callback
  * Handles Google OAuth callback, verifies ID token, provisions user and session
  */
-router.get('/google/callback', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/google/callback', async (req: Request, res: Response) => {
   try {
     const { code, state, error } = req.query;
 

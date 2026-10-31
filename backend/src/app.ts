@@ -19,9 +19,15 @@ import servicesRouter from './routes/services.js';
 import opportunitiesRouter from './routes/opportunities.js';
 import templatesRouter from './routes/templates.js';
 import draftsRouter from './routes/drafts.js';
+import emailStudioRouter from './routes/email-studio.js';
 import mailboxesRouter from './routes/mailboxes.js';
 import followupsRouter from './routes/followups.js';
+import todosRouter from './routes/todos.js';
+import projectsRouter from './routes/projects.js';
+import notesRouter from './routes/notes.js';
+import productivityRouter from './routes/productivity.js';
 import campaignsRouter from './routes/campaigns.js';
+import campaignSplitsRouter from './routes/campaign-splits.js';
 import analyticsRouter from './routes/analytics.js';
 import settingsRouter from './routes/settings.js';
 import calendarRouter from './routes/calendar.js';
@@ -59,6 +65,19 @@ export function createApp(): Express {
   // Request Body Parsers
   // CSV prospect files can be several megabytes; the body limit is configurable
   // (IMPORT_MAX_FILE_BYTES controls the semantic limit enforced per route).
+  // Import routes accept CSV as a JSON/text body, so they get a parser sized to
+  // the import limit (+1 MB for JSON escaping); everything else keeps the
+  // tighter global limit. Parsing here marks the body as handled, so the global
+  // parsers below skip it. Buffering a multi-GB JSON string in a 512 MB process
+  // would be an easy DoS, so this legacy path is capped well below the disk-
+  // backed multipart/chunked upload limit.
+  const legacyJsonCsvLimit = Math.min(env.IMPORT_MAX_FILE_BYTES, 64 * 1024 * 1024);
+  const importBodyLimit = legacyJsonCsvLimit + 1024 * 1024;
+  app.use(
+    '/api/v1/imports',
+    express.json({ limit: importBodyLimit }),
+    express.text({ type: ['text/csv', 'text/plain'], limit: importBodyLimit })
+  );
   app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
   app.use(express.urlencoded({ extended: true, limit: env.JSON_BODY_LIMIT }));
   app.use(express.text({ type: ['text/csv', 'text/plain'], limit: env.JSON_BODY_LIMIT }));
@@ -89,9 +108,15 @@ export function createApp(): Express {
   apiV1Router.use('/opportunities', opportunitiesRouter);
   apiV1Router.use('/templates', templatesRouter);
   apiV1Router.use('/drafts', draftsRouter);
+  apiV1Router.use('/email-studio', emailStudioRouter);
   apiV1Router.use('/mailboxes', mailboxesRouter);
   apiV1Router.use('/follow-ups', followupsRouter);
+  apiV1Router.use('/todos', todosRouter);
+  apiV1Router.use('/projects', projectsRouter);
+  apiV1Router.use('/notes', notesRouter);
+  apiV1Router.use('/productivity', productivityRouter);
   apiV1Router.use('/campaigns', campaignsRouter);
+  apiV1Router.use('/campaign-splits', campaignSplitsRouter);
   apiV1Router.use('/analytics', analyticsRouter);
   apiV1Router.use('/settings', settingsRouter);
   apiV1Router.use('/calendar', calendarRouter);

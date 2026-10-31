@@ -6,8 +6,10 @@ import { Suppression } from '../models/Suppression.js';
 import { IEmailProvider } from '../providers/email/email-provider.interface.js';
 import { mockEmailProvider } from '../providers/email/mock-email.provider.js';
 import { gmailProvider } from '../providers/email/gmail.provider.js';
+import { isSmtpConfigured, smtpEmailProvider } from '../providers/email/smtp.provider.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { senderAccountService } from './sender-account.service.js';
+import { renderEnterpriseEmail } from '../email-design/enterprise-template.js';
 
 export interface ExecuteSendOptions {
   draftId: string;
@@ -47,6 +49,26 @@ const QUOTA_DEFERRED_CODES = new Set(['GMAIL_QUOTA_EXCEEDED', 'GMAIL_QUOTA_EXHAU
 
 export class EmailSendPipelineService {
   constructor(private emailProvider: IEmailProvider = mockEmailProvider) {}
+
+  /**
+   * Resolves the provider adapter for a mailbox. A mailbox configured for SMTP
+   * must never silently fall back to the simulated provider: a missing SMTP
+   * configuration would otherwise look like a successful send.
+   */
+  private providerFor(mailbox: { provider?: string }): IEmailProvider {
+    if (mailbox.provider === 'gmail') return gmailProvider;
+    if (mailbox.provider === 'smtp') {
+      if (!isSmtpConfigured()) {
+        throw new AppError(
+          'This mailbox uses SMTP but the server has no SMTP credentials. Configure SMTP_HOST, SMTP_USER and SMTP_PASS.',
+          400,
+          'SMTP_NOT_CONFIGURED'
+        );
+      }
+      return smtpEmailProvider;
+    }
+    return this.emailProvider;
+  }
 
   /**
    * Atomically books the send against the mailbox's daily and hourly counters.
@@ -213,7 +235,7 @@ export class EmailSendPipelineService {
     // checked first. Only when the message is provably absent is a resend
     // allowed.
     if (existingAttempt?.deliveryUncertain && existingAttempt.status === 'unknown_timeout') {
-      const reconcileProvider = mailbox.provider === 'gmail' ? gmailProvider : this.emailProvider;
+      const reconcileProvider = this.providerFor(mailbox);
       let sent: { messageId: string; threadId?: string } | null = null;
 
       if (typeof reconcileProvider.findSentMessage === 'function') {
@@ -301,13 +323,26 @@ export class EmailSendPipelineService {
     }
 
     // EXECUTE DISPATCH VIA PROVIDER ADAPTER
-    const provider = mailbox.provider === 'gmail' ? gmailProvider : this.emailProvider;
+    const provider = this.providerFor(mailbox);
     try {
       const sendPayload: any = {
         to: recipientEmail,
         subject: draft.subject,
         body: draft.bodyText,
       };
+      if (draft.bodyHtml) {
+        sendPayload.html = draft.bodyHtml;
+      } else {
+        const renderedEnterprise = renderEnterpriseEmail({
+          subject: draft.subject,
+          bodyText: draft.bodyText,
+          recipientName: draft.recipientName,
+          recipientEmail: draft.recipientEmail,
+          companyName: draft.companyName,
+        });
+        sendPayload.html = renderedEnterprise.html;
+        draft.bodyHtml = renderedEnterprise.html;
+      }
       if (options.maxQuotaWaitMs !== undefined) {
         sendPayload.maxQuotaWaitMs = options.maxQuotaWaitMs;
       }
@@ -347,6 +382,7 @@ export class EmailSendPipelineService {
           to: [{ name: draft.recipientName || '', email: recipientEmail }],
           subject: draft.subject,
           bodyText: draft.bodyText,
+          bodyHtml: draft.bodyHtml,
           snippet: draft.bodyText.slice(0, 160),
           date: now,
           isRead: true,

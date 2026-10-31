@@ -13,7 +13,8 @@ import {
   Ban,
   Loader2,
 } from 'lucide-react';
-import { api } from '../../lib/api';
+import { api, authHeaders } from '../../lib/api';
+import { downloadBlob } from '../../lib/mail';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 
 export type ImportProgressState =
@@ -206,21 +207,12 @@ export function CsvImportProgressModal({
     if (!jobId) return;
     setIsDownloadingErrors(true);
     try {
-      const token = localStorage.getItem('radar_token');
       const res = await fetch(`/api/v1/imports/jobs/${jobId}/errors`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to download error report');
-      const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `import_errors_${jobId}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      downloadBlob(await res.blob(), `import_errors_${jobId}.csv`);
     } catch (err) {
       console.error('Error downloading error report:', err);
     } finally {

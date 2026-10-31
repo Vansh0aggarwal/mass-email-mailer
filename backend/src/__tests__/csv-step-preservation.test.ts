@@ -26,7 +26,7 @@ describe('CSV Step Copy Preservation & Template Interpolation', () => {
 
   afterAll(async () => {
     await Campaign.deleteMany({ organizationId: tenant });
-    await CampaignRecipient.deleteMany({});
+    await CampaignRecipient.deleteMany({ organizationId: tenant });
     await EmailDraft.deleteMany({ organizationId: tenant });
     await WorkspaceSettings.deleteMany({ organizationId: tenant });
     await EmailAccount.deleteMany({ organizationId: tenant });

@@ -80,7 +80,7 @@ export function evaluateOpportunity(
   input: CompanyEvaluationInput,
   config: ScoringConfig = defaultScoringConfig
 ): RecommendationEvaluationResult {
-  const { company, assessments = [], availableCatalogServices } = input;
+  const { company, availableCatalogServices } = input;
 
   const ruleExplanations: string[] = [];
   const evidence: RecommendationEvaluationResult['evidence'] = [];

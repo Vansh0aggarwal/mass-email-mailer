@@ -5,6 +5,7 @@ import { campaignSchedulerService } from './services/campaign-scheduler.service.
 import { mailboxSyncWorkerService } from './services/mailbox-sync-worker.service.js';
 import { cleanupExpiredImports, ensureUploadDir } from './services/import-job.service.js';
 import { campaignService } from './services/campaign.service.js';
+import { campaignSplitService } from './services/campaign-split.service.js';
 
 async function bootstrap() {
   try {
@@ -24,6 +25,12 @@ async function bootstrap() {
       const recovered = await campaignService.recoverDanglingJobs();
       if (recovered > 0) {
         console.log(`[Swaniki Radar Server] Recovered ${recovered} interrupted campaign import job(s)`);
+      }
+      // This process just booted, so no split worker can be live here yet:
+      // resume every job that was mid-analysis or mid-generation.
+      const resumedSplits = await campaignSplitService.recoverInterruptedJobs({ force: true });
+      if (resumedSplits > 0) {
+        console.log(`[Swaniki Radar Server] Resumed ${resumedSplits} interrupted split import job(s)`);
       }
     } catch (err: any) {
       console.warn('[Swaniki Radar Server] CSV import cleanup skipped:', err?.message);

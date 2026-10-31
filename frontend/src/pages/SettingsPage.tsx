@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { api } from '../lib/api';
+import { mailKeys } from '../lib/mail';
 import type { Theme } from '../lib/theme';
 import type { WorkspaceSettings, EmailAccount } from '../types';
 
@@ -83,7 +84,7 @@ export function SettingsPage() {
   });
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['mailboxes'],
+    queryKey: mailKeys.mailboxes,
     queryFn: () => api.get<EmailAccount[]>('/mailboxes'),
   });
 

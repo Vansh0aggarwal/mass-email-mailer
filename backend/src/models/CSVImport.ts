@@ -21,6 +21,11 @@ export interface ImportRowError {
 
 export interface ICSVImport extends Document {
   organizationId: string;
+  /**
+   * Authenticated user who started the import. Persisted so the background
+   * worker and later retries attribute created companies to the original actor.
+   */
+  createdBy?: string;
   fileName: string;
   /** Rows detected in the source file. */
   totalRows: number;
@@ -72,6 +77,7 @@ export interface ICSVImport extends Document {
 const CSVImportSchema = new Schema<ICSVImport>(
   {
     organizationId: { type: String, required: true, index: true },
+    createdBy: { type: String },
     fileName: { type: String, required: true },
     totalRows: { type: Number, default: 0 },
     validRows: { type: Number, default: 0 },

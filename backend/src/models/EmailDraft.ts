@@ -24,6 +24,13 @@ export interface IEmailDraft extends Document {
   recipientName?: string;
   subject: string;
   bodyText: string;
+  /** Rendered HTML alternative (designed emails only). */
+  bodyHtml?: string;
+  /** Declarative email design document used to re-render the HTML preview. */
+  design?: Record<string, any>;
+  /** Which composer produced the draft. Studio drafts use the design system. */
+  surface?: 'campaign' | 'studio';
+  studioTemplateId?: mongoose.Types.ObjectId;
   tone: string;
   status: DraftStatus;
   recommendedServiceId?: string;
@@ -72,6 +79,10 @@ const EmailDraftSchema = new Schema<IEmailDraft>(
     recipientName: { type: String, trim: true },
     subject: { type: String, required: true, trim: true },
     bodyText: { type: String, required: true },
+    bodyHtml: { type: String },
+    design: { type: Schema.Types.Mixed },
+    surface: { type: String, enum: ['campaign', 'studio'], default: 'campaign', index: true },
+    studioTemplateId: { type: Schema.Types.ObjectId, ref: 'EmailStudioTemplate' },
     tone: { type: String, default: 'consultative' },
     status: {
       type: String,
@@ -127,5 +138,6 @@ EmailDraftSchema.index({ organizationId: 1, status: 1, createdAt: -1 });
 EmailDraftSchema.index({ organizationId: 1, campaignId: 1, createdAt: -1 });
 EmailDraftSchema.index({ organizationId: 1, campaignId: 1, recipientId: 1, stepIndex: 1 });
 EmailDraftSchema.index({ organizationId: 1, providerThreadId: 1 });
+EmailDraftSchema.index({ organizationId: 1, surface: 1, createdAt: -1 });
 
 export const EmailDraft = mongoose.model<IEmailDraft>('EmailDraft', EmailDraftSchema);

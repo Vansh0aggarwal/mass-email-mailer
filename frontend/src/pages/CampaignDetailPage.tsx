@@ -31,10 +31,12 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, authHeaders } from '../lib/api';
+import { downloadBlob } from '../lib/mail';
 import { Campaign, CampaignProgress, CampaignRecipient } from '../types';
 import { campaignStatusMeta, recipientStatusClass, isValidEmailFormat } from '../lib/campaign';
 import { getTargetingEvidence, getAiRecommendation, getRecipientValidationIssues } from '../lib/targeting';
+import { displayUserName, formatAuditDate } from '../lib/ownership';
 import { RecipientDraftInspectorModal } from '../components/campaigns/RecipientDraftInspectorModal';
 import { SenderAccountsPanel } from '../components/campaigns/SenderAccountsPanel';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
@@ -203,21 +205,15 @@ export function CampaignDetailPage() {
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
-      const token = localStorage.getItem('radar_token');
       const res = await fetch(`/api/v1/campaigns/${id}/export`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to export campaign report');
-      const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `campaign_${(campaign?.name || 'report').toLowerCase().replace(/\s+/g, '_')}_export.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      downloadBlob(
+        await res.blob(),
+        `campaign_${(campaign?.name || 'report').toLowerCase().replace(/\s+/g, '_')}_export.csv`
+      );
     } catch (err: any) {
       setMessage(err?.message || 'CSV export failed');
     } finally {
@@ -374,6 +370,18 @@ export function CampaignDetailPage() {
               <span className={`badge ${meta.className} uppercase font-semibold`}>{meta.label}</span>
             </h1>
             <p className="text-xs text-ink-muted mt-1 font-mono">{campaign.mailboxId}</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-subtle mt-1.5">
+              <span>
+                Created by{' '}
+                <span className="text-ink-muted font-medium">
+                  {displayUserName(campaign.createdByUser, campaign.createdBy)}
+                </span>
+              </span>
+              <span className="text-line">·</span>
+              <span className="tabular-nums">Created {formatAuditDate(campaign.createdAt)}</span>
+              <span className="text-line">·</span>
+              <span className="tabular-nums">Updated {formatAuditDate(campaign.updatedAt)}</span>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canGenerate && (
@@ -855,13 +863,14 @@ export function CampaignDetailPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px] text-left text-xs">
+            <table className="w-full min-w-[900px] text-left text-xs">
               <thead className="bg-surface-2 border-b border-line text-ink-subtle font-semibold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="px-5 py-3">Company</th>
                   <th className="px-5 py-3">Recipient</th>
                   <th className="px-5 py-3">Target Topic</th>
                   <th className="px-5 py-3">Sequence Steps (1 / 2 / 3)</th>
+                  <th className="px-5 py-3">Added By</th>
                   <th className="px-5 py-3">Recipient Status</th>
                   <th className="px-5 py-3 text-right">Action</th>
                 </tr>
@@ -1087,6 +1096,14 @@ export function CampaignDetailPage() {
                               </div>
                             );
                           })}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 align-top whitespace-nowrap">
+                        <div className="text-[11px] font-medium text-ink">
+                          {displayUserName(r.addedByUser, r.addedBy)}
+                        </div>
+                        <div className="text-[10px] text-ink-subtle font-mono" title="Date this recipient was added to the campaign">
+                          {formatAuditDate(r.addedAt)}
                         </div>
                       </td>
                       <td className="px-5 py-3 max-w-[240px] align-top">

@@ -27,11 +27,10 @@
  * if an assigned account disappears, the affected recipients are reported as
  * `orphaned` and are held back (not sent) until an administrator migrates them.
  */
-import { Campaign, ICampaign, ICampaignSenderAccount } from '../models/Campaign.js';
+import { Campaign } from '../models/Campaign.js';
 import { CampaignRecipient } from '../models/CampaignRecipient.js';
 import { EmailSendAttempt } from '../models/EmailSendAttempt.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { env } from '../config/env.js';
 import { senderAccountService, evaluateAuthorization } from './sender-account.service.js';
 
 /** Recipients in these states may still receive a message. */
@@ -96,7 +95,7 @@ export class SenderAllocationService {
   async allocate(
     organizationId: string,
     campaignId: string,
-    actorId: string,
+    _actorId: string,
     options: { redistribute?: boolean } = {}
   ): Promise<AllocationResult> {
     const campaign = await Campaign.findOne({ _id: campaignId, organizationId });
@@ -320,7 +319,7 @@ export class SenderAllocationService {
   async rebalance(
     organizationId: string,
     campaignId: string,
-    actorId: string,
+    _actorId: string,
     actorRole: string,
     options: RebalanceOptions
   ): Promise<AllocationResult> {

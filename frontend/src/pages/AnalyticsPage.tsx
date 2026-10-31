@@ -36,7 +36,8 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { api } from '../lib/api';
+import { api, authHeaders } from '../lib/api';
+import { downloadBlob } from '../lib/mail';
 
 interface SummaryData {
   campaignsCount: number;
@@ -232,26 +233,14 @@ export function AnalyticsPage() {
       if (selectedStep !== 'all') params.set('step', selectedStep);
       if (selectedStatus !== 'all') params.set('status', selectedStatus);
 
-      const token = localStorage.getItem('radar_token');
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-
       const res = await fetch(`/api/v1/analytics/export?${params.toString()}`, {
         credentials: 'include',
-        headers,
+        headers: authHeaders(),
       });
 
       if (!res.ok) throw new Error('Failed to generate CSV export');
 
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `swaniki-analytics-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      downloadBlob(await res.blob(), `swaniki-analytics-${new Date().toISOString().split('T')[0]}.csv`);
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -1092,5 +1081,3 @@ export function AnalyticsPage() {
     </div>
   );
 }
-
-export default AnalyticsPage;

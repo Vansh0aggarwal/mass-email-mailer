@@ -16,9 +16,6 @@ import { Suppression } from '../models/Suppression.js';
 import { WorkspaceSettings } from '../models/WorkspaceSettings.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
-  parseCsvString,
-  parseCsvDetailed,
-  validateAndNormalizeRows,
   normalizeParsedRow,
   createDuplicateSets,
   mappedValue,
@@ -44,8 +41,6 @@ import {
   buildInterpolationValues,
   interpolateTemplate,
   sanitizeHeaderValue,
-  isCompanyNameLike,
-  detectCompanyNameMismatch,
   validateEmailCopy,
   repairUnsupportedClaims,
   STEP_COPY_FIELD_KEYS,
@@ -55,6 +50,11 @@ import { emailSendPipelineService } from '../services/email-send-pipeline.servic
 import { senderAccountService } from '../services/sender-account.service.js';
 import { senderAllocationService } from '../services/sender-allocation.service.js';
 import { aiGroundingService } from '../providers/ai/ai-grounding.service.js';
+import {
+  loadUserDisplaySummaries,
+  withUserDisplay,
+} from '../services/user-display.service.js';
+import { renderEnterpriseEmail } from '../email-design/enterprise-template.js';
 
 export interface CampaignStepInput {
   subject: string;
@@ -408,6 +408,7 @@ export class CampaignService {
       organizationId,
       campaignId: campaign._id,
       campaignName: campaign.name,
+      createdBy: actorId,
       fileName,
       uploadId: resolvedUploadId,
       storedFilePath,
@@ -806,6 +807,7 @@ export class CampaignService {
       organizationId,
       campaignId: campaign._id,
       campaignName: campaign.name,
+      createdBy: actorId,
       fileName,
       uploadId: resolvedUploadId,
       storedFilePath,
@@ -850,6 +852,7 @@ export class CampaignService {
   ): Promise<CreateCampaignResult> {
     const {
       organizationId,
+      actorId,
       name,
       steps,
       columnMapping,
@@ -1005,6 +1008,9 @@ export class CampaignService {
 
       for (const item of batch) {
         processedRowCount++;
+        // Every recipient row — including skipped/suppressed ones — records the
+        // authenticated user who added it, independent of the campaign owner.
+        const recipientAudit = { addedBy: actorId, addedAt: new Date() };
         const parsedRow = normalizeParsedRow(
           item.raw,
           item.rowNumber,
@@ -1071,6 +1077,7 @@ export class CampaignService {
             organizationId,
             campaignId: campaign._id,
             rowNumber: parsedRow.rowNumber,
+            ...recipientAudit,
             email: parsedRow.cleaned?.contact_email || `unspecified-row${parsedRow.rowNumber}@invalid.local`,
             name:
               [parsedRow.cleaned?.contact_first_name, parsedRow.cleaned?.contact_last_name].filter(Boolean).join(' ') ||
@@ -1097,6 +1104,7 @@ export class CampaignService {
             organizationId,
             campaignId: campaign._id,
             rowNumber: parsedRow.rowNumber,
+            ...recipientAudit,
             email: `missing-email-row${parsedRow.rowNumber}@invalid.local`,
             name: [cleaned.contact_first_name, cleaned.contact_last_name].filter(Boolean).join(' ') || undefined,
             companyName: cleaned.company_name || '(Missing company name)',
@@ -1116,6 +1124,7 @@ export class CampaignService {
             organizationId,
             campaignId: campaign._id,
             rowNumber: parsedRow.rowNumber,
+            ...recipientAudit,
             email: contactEmail,
             name: [cleaned.contact_first_name, cleaned.contact_last_name].filter(Boolean).join(' ') || undefined,
             companyName: cleaned.company_name,
@@ -1137,6 +1146,7 @@ export class CampaignService {
             organizationId,
             campaignId: campaign._id,
             rowNumber: parsedRow.rowNumber,
+            ...recipientAudit,
             email: contactEmail,
             name: [cleaned.contact_first_name, cleaned.contact_last_name].filter(Boolean).join(' ') || undefined,
             companyName: cleaned.company_name,
@@ -1161,6 +1171,8 @@ export class CampaignService {
               company = await Company.create({
                 organizationId,
                 name: cleaned.company_name,
+                createdBy: actorId,
+                createdVia: 'csv_import',
                 domain: cleaned.domain || undefined,
                 websiteUrl: cleaned.website_url || undefined,
                 industry: cleaned.industry || undefined,
@@ -1208,6 +1220,7 @@ export class CampaignService {
               organizationId,
               campaignId: campaign._id,
               rowNumber: parsedRow.rowNumber,
+              ...recipientAudit,
               companyId: company._id,
               contactId: contact._id,
               email: contactEmail,
@@ -1330,6 +1343,17 @@ export class CampaignService {
           },
         }
       );
+
+      // Keep Campaign stats up to date live as batches are committed
+      await Campaign.updateOne(
+        { _id: campaign._id },
+        {
+          $set: {
+            'stats.totalRecipients': recipientsCreated + skippedCount,
+            'stats.skipped': skippedCount,
+          },
+        }
+      ).catch(() => {});
 
       // Yield event loop
       await new Promise((r) => setImmediate(r));
@@ -1691,6 +1715,14 @@ export class CampaignService {
             warnings.push('Imported email copy contains assertive promotional claims. Review before approval.');
           }
 
+          const renderedEnterprise = renderEnterpriseEmail({
+            subject: finalSubject,
+            bodyText: finalBody,
+            recipientName: recipient.name,
+            recipientEmail: recipient.email,
+            companyName: recipient.companyName,
+          });
+
           draft = await EmailDraft.create({
             organizationId,
             campaignId: campaign._id,
@@ -1703,6 +1735,7 @@ export class CampaignService {
             recipientName: recipient.name,
             subject: finalSubject,
             bodyText: finalBody,
+            bodyHtml: renderedEnterprise.html,
             tone: campaign.tone,
             status: 'draft',
             originalSubject: importedSubject || undefined,
@@ -1826,6 +1859,14 @@ export class CampaignService {
 
     const aiWarnings = [...(aiResult.output.warnings || []), ...validation.warnings];
 
+    const renderedEnterprise = renderEnterpriseEmail({
+      subject: aiSubject,
+      bodyText: aiBody,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    });
+
     return EmailDraft.create({
       organizationId: campaign.organizationId,
       campaignId: campaign._id,
@@ -1838,6 +1879,7 @@ export class CampaignService {
       recipientName: recipient.name,
       subject: aiSubject,
       bodyText: aiBody,
+      bodyHtml: renderedEnterprise.html,
       tone: campaign.tone,
       status: 'draft',
       originalSubject: importedSubject || undefined,
@@ -1961,12 +2003,21 @@ export class CampaignService {
       customFields: customObj,
     });
 
+    const bodyHtml = renderEnterpriseEmail({
+      subject,
+      bodyText,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    }).html;
+
     await EmailDraft.updateOne(
       { _id: slot.draftId, organizationId },
       {
         $set: {
           subject: sanitizeHeaderValue(subject),
           bodyText,
+          bodyHtml,
           isManualEdit: true,
           generationSource: 'manual_edit',
           warnings: validation.warnings,
@@ -2026,6 +2077,13 @@ export class CampaignService {
     });
 
     draft.bodyText = repairedBody;
+    draft.bodyHtml = renderEnterpriseEmail({
+      subject: draft.subject,
+      bodyText: repairedBody,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    }).html;
     draft.isManualEdit = true;
     draft.generationSource = 'manual_edit';
     draft.warnings = validation.warnings;
@@ -2073,6 +2131,13 @@ export class CampaignService {
 
     draft.subject = sanitizeHeaderValue(origSubject || draft.subject);
     draft.bodyText = origBody || draft.bodyText;
+    draft.bodyHtml = renderEnterpriseEmail({
+      subject: draft.subject,
+      bodyText: draft.bodyText,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    }).html;
     draft.isManualEdit = false;
     draft.generationSource = 'csv_template';
     await draft.save();
@@ -2231,6 +2296,14 @@ export class CampaignService {
       throw new AppError(`Step ${stepNum} requires a subject and body. CSV copy was missing.`, 400, 'STEP_COPY_MISSING');
     }
 
+    const bodyHtml = renderEnterpriseEmail({
+      subject: renderedSubject,
+      bodyText: renderedBody,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    }).html;
+
     if (!slot) {
       slot = { stepIndex, status: 'pending' };
       recipient.stepDrafts.push(slot);
@@ -2240,6 +2313,7 @@ export class CampaignService {
       await EmailDraft.findByIdAndUpdate(slot.draftId, {
         subject: renderedSubject,
         bodyText: renderedBody,
+        bodyHtml,
         isManualEdit: false,
         generationSource: isAi ? 'ai_grounded' : 'personalized_template',
         originalSubject: importedSubject || undefined,
@@ -2263,6 +2337,7 @@ export class CampaignService {
         recipientName: recipient.name,
         subject: renderedSubject,
         bodyText: renderedBody,
+        bodyHtml,
         tone: campaign.tone,
         status: 'draft',
         originalSubject: importedSubject || undefined,
@@ -2295,14 +2370,20 @@ export class CampaignService {
       ? await EmailDraft.find({ _id: { $in: draftIds }, organizationId }).lean()
       : [];
     const draftMap = new Map(drafts.map((d: any) => [String(d._id), d]));
+    const userMap = await loadUserDisplaySummaries([recipient.addedBy], organizationId);
 
-    return {
-      ...recipient,
-      stepDrafts: (recipient.stepDrafts || []).map((d: any) => ({
-        ...d,
-        draft: d.draftId ? draftMap.get(String(d.draftId)) || null : null,
-      })),
-    };
+    return withUserDisplay(
+      {
+        ...recipient,
+        stepDrafts: (recipient.stepDrafts || []).map((d: any) => ({
+          ...d,
+          draft: d.draftId ? draftMap.get(String(d.draftId)) || null : null,
+        })),
+      },
+      'addedBy',
+      'addedByUser',
+      userMap
+    );
   }
 
   /** Generates or regenerates drafts for a single recipient across all campaign steps. */
@@ -2426,6 +2507,14 @@ export class CampaignService {
           httpCode: customObj['http_code'],
         });
 
+        const bodyHtml = renderEnterpriseEmail({
+          subject: renderedSubject,
+          bodyText: renderedBody,
+          recipientName: recipient.name,
+          recipientEmail: recipient.email,
+          companyName: recipient.companyName,
+        }).html;
+
         draft = await EmailDraft.create({
           organizationId: campaign.organizationId,
           campaignId: campaign._id,
@@ -2438,6 +2527,7 @@ export class CampaignService {
           recipientName: recipient.name,
           subject: renderedSubject,
           bodyText: renderedBody,
+          bodyHtml,
           tone: campaign.tone,
           status: 'draft',
           originalSubject: importedSubject || undefined,
@@ -2627,6 +2717,15 @@ export class CampaignService {
       recipientName: 'Test Recipient',
       subject: `[TEST PREVIEW] ${draft.subject}`,
       bodyText: draft.bodyText,
+      bodyHtml:
+        draft.bodyHtml ||
+        renderEnterpriseEmail({
+          subject: draft.subject,
+          bodyText: draft.bodyText,
+          recipientName: recipient.name,
+          recipientEmail: recipient.email,
+          companyName: recipient.companyName,
+        }).html,
       tone: draft.tone,
       status: 'approved',
     });

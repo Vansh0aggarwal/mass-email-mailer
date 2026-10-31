@@ -1,9 +1,22 @@
 export type AssessmentRating = 'A' | 'B' | 'C' | 'D' | 'F' | 'unrated';
 
+/** Resolved display profile for a creator/actor id. */
+export interface UserDisplaySummary {
+  _id: string;
+  fullName?: string;
+  email?: string;
+  avatarUrl?: string;
+}
+
+export type CompanyCreatedVia = 'manual' | 'csv_import' | 'api';
+
 export interface Company {
   _id: string;
   organizationId: string;
   name: string;
+  createdBy?: string;
+  createdVia?: CompanyCreatedVia;
+  createdByUser?: UserDisplaySummary | null;
   domain?: string;
   websiteUrl?: string;
   industry?: string;
@@ -94,6 +107,11 @@ export interface EmailDraft {
   recipientName?: string;
   subject: string;
   bodyText: string;
+  /** Rendered HTML alternative for designed studio emails. */
+  bodyHtml?: string;
+  /** Declarative design document behind a studio email. */
+  design?: Record<string, unknown>;
+  surface?: 'campaign' | 'studio';
   tone: string;
   status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'queued' | 'sending' | 'accepted' | 'failed' | 'unknown_outcome' | 'archived';
   recommendedServiceId?: string;
@@ -114,53 +132,6 @@ export interface EmailDraft {
   updatedAt: string;
 }
 
-export interface EmailMessage {
-  id: string;
-  threadId: string;
-  mailboxId: string;
-  from: { name: string; email: string };
-  to: { name: string; email: string }[];
-  subject: string;
-  bodyText: string;
-  snippet: string;
-  date: string;
-  isRead: boolean;
-  isStarred: boolean;
-  hasAttachments: boolean;
-  companyId?: string;
-  companyName?: string;
-}
-
-export interface EmailThread {
-  id: string;
-  mailboxId: string;
-  subject: string;
-  snippet: string;
-  lastMessageDate: string;
-  messageCount: number;
-  isRead: boolean;
-  isStarred: boolean;
-  isArchived: boolean;
-  companyId?: string;
-  companyName?: string;
-  messages: EmailMessage[];
-}
-
-export interface FollowUpTask {
-  _id: string;
-  organizationId: string;
-  companyId?: string;
-  companyName?: string;
-  contactEmail: string;
-  threadId?: string;
-  dueDate: string;
-  notes: string;
-  status: 'pending' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high';
-  createdAt: string;
-  updatedAt: string;
-}
-
 export type ImportJobStatus =
   | 'queued'
   | 'processing'
@@ -172,6 +143,13 @@ export type ImportJobStatus =
   | 'cancellation_requested'
   | 'cancelling'
   | 'cancelled';
+
+/** Editable custom-field mapping row used by both import flows. */
+export interface CustomFieldRow {
+  source: string;
+  target: string;
+  enabled: boolean;
+}
 
 export interface ImportSummary {
   _id: string;
@@ -415,6 +393,8 @@ export interface Campaign {
   name: string;
   status: CampaignStatus;
   mailboxId: string;
+  createdBy?: string;
+  createdByUser?: UserDisplaySummary | null;
   /** Connected Gmail accounts that participate in this campaign. */
   senderAccounts?: CampaignSenderAccount[];
   tone: string;
@@ -469,6 +449,9 @@ export interface CampaignRecipient {
   _id: string;
   campaignId: string;
   rowNumber: number;
+  addedBy?: string;
+  addedAt?: string;
+  addedByUser?: UserDisplaySummary | null;
   email: string;
   name?: string;
   companyName?: string;
@@ -508,19 +491,6 @@ export interface CampaignProgress {
   schedule?: CampaignSchedule | null;
   lastError?: string;
   hasUngeneratedDrafts?: boolean;
-}
-
-export interface ReplyAssistantResult {
-  _id?: string;
-  subject?: string;
-  bodyText: string;
-  suggestedNextStep?: string;
-  questionsForUser: string[];
-  factsUsed: string[];
-  missingInformation: string[];
-  warnings: string[];
-  isFallback?: boolean;
-  provider?: string;
 }
 
 export interface CampaignPreview {
@@ -590,4 +560,221 @@ export interface CreatedCalendarEvent {
   attendees: string[];
   provider: 'google' | 'mock';
 }
+
+export type TodoStatus = 'open' | 'completed';
+/** `medium` is presented as "Normal" in the productivity windows. */
+export type TodoPriority = 'low' | 'medium' | 'high';
+/** Task window to focus when opening a search result or notification. */
+export type TaskViewTarget = 'todo' | 'daily';
+
+export interface TodoSubtask {
+  _id?: string;
+  title: string;
+  completed: boolean;
+}
+
+export type ProjectColor = 'slate' | 'blue' | 'green' | 'amber' | 'rose' | 'violet';
+export type ProjectIcon = 'folder' | 'briefcase' | 'book' | 'heart' | 'wallet' | 'sparkles';
+
+export interface TodoProjectRef {
+  _id: string;
+  name: string;
+  color: ProjectColor;
+  icon: ProjectIcon;
+}
+
+export interface TodoItem {
+  _id: string;
+  /** Server-derived aliases; one shared task record backs both windows. */
+  id?: string;
+  userId?: string;
+  isCompleted?: boolean;
+  organizationId: string;
+  title: string;
+  notes?: string;
+  description?: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  dueDate?: string;
+  scheduledTime?: string;
+  scheduledEndTime?: string;
+  timezone?: string;
+  addToCalendar?: boolean;
+  addMeetLink?: boolean;
+  reminderEnabled: boolean;
+  reminderMinutes: number;
+  reminderSentAt?: string;
+  category?: string;
+  tags: string[];
+  projectId?: string;
+  project?: TodoProjectRef | null;
+  subtasks: TodoSubtask[];
+  position: number;
+  assignedTo: string;
+  createdBy: string;
+  assignedToUser?: UserDisplaySummary | null;
+  createdByUser?: UserDisplaySummary | null;
+  completedAt?: string;
+  googleTaskId?: string;
+  googleEventId?: string;
+  googleCalendarId?: string;
+  googleMeetLink?: string;
+  googleMeetSource?: 'google' | 'manual';
+  lastSyncedAt?: string;
+  lastSyncError?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Returned by create/update when Google sync was attempted. */
+  sync?: { synced: boolean; warning?: string };
+}
+
+export interface TodoListSettings {
+  _id?: string;
+  title: string;
+  timezone: string;
+}
+
+export interface ProductivityProject {
+  _id: string;
+  organizationId: string;
+  userId: string;
+  name: string;
+  description?: string;
+  color: ProjectColor;
+  icon: ProjectIcon;
+  archived: boolean;
+  position: number;
+  taskCount: number;
+  completedCount: number;
+  openCount: number;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NoteColor = 'yellow' | 'green' | 'pink' | 'purple' | 'blue' | 'orange';
+
+export interface StickyNoteItem {
+  _id: string;
+  organizationId: string;
+  userId: string;
+  title: string;
+  content: string;
+  color: NoteColor;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoogleIntegrationStatus {
+  connected: boolean;
+  email: string | null;
+  syncTasks: boolean;
+  syncCalendar: boolean;
+  syncMeet: boolean;
+  autoSync: boolean;
+  lastSyncedAt: string | null;
+  lastSyncError: string | null;
+  tasksScopeGranted: boolean;
+  calendarId: string | null;
+  taskListId: string | null;
+  taskListName: string | null;
+}
+
+export interface ProductivityScheduleItem {
+  _id: string;
+  title: string;
+  dueDate?: string | null;
+  scheduledTime?: string;
+  scheduledEndTime?: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  projectId?: string;
+}
+
+export interface ProductivitySummary {
+  range: { from: string; to: string };
+  todoList: {
+    title: string;
+    timezone: string;
+    openCount: number;
+    completedCount: number;
+    totalCount: number;
+    progress: number;
+  };
+  daily: {
+    openCount: number;
+    completedCount: number;
+    totalCount: number;
+    overdueCount: number;
+    upcomingCount: number;
+    progress: number;
+  };
+  projects: {
+    activeCount: number;
+    openTaskCount: number;
+    items: Array<{ _id: string; name: string; color: ProjectColor; icon: ProjectIcon }>;
+  };
+  notes: { count: number };
+  schedule: ProductivityScheduleItem[];
+  google: GoogleIntegrationStatus;
+}
+
+export interface ProductivityNotification {
+  id: string;
+  type: 'overdue' | 'reminder' | 'integration';
+  title: string;
+  message: string;
+  taskId?: string;
+  target?: TaskViewTarget;
+  at?: string;
+}
+
+export interface GoogleCalendarOption {
+  id: string;
+  summary: string;
+  primary: boolean;
+  timeZone?: string;
+}
+
+export interface GoogleTaskListOption {
+  id: string;
+  title: string;
+}
+
+export interface GoogleIntegrationSettings extends GoogleIntegrationStatus {
+  id?: string;
+  status?: 'connected' | 'error' | 'disconnected';
+  displayName?: string;
+  provider?: 'google' | 'mock';
+  grantedScopes: string[];
+}
+
+export interface ProductivitySearchResponse {
+  query: string;
+  total: number;
+  tasks: Array<{
+    id: string;
+    type: 'task';
+    title: string;
+    subtitle: string;
+    badge?: string;
+    target?: TaskViewTarget;
+  }>;
+  projects: Array<{
+    id: string;
+    type: 'project';
+    title: string;
+    subtitle: string;
+    badge?: string;
+  }>;
+  notes: Array<{
+    id: string;
+    type: 'note';
+    title: string;
+    subtitle: string;
+    badge?: string;
+  }>;
+}
+
 

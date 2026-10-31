@@ -15,7 +15,19 @@ export async function connectDatabase(): Promise<typeof mongoose> {
   // Attempt standard connection first
   try {
     mongoose.set('strictQuery', true);
-    await mongoose.connect(env.MONGODB_URI, {
+
+    let targetUri = env.MONGODB_URI;
+    const isTest = env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+    if (isTest && !process.env.MONGODB_URI_TEST) {
+      const match = targetUri.match(/^(mongodb(?:\+srv)?:\/\/[^/?]+)(?:\/([^?]*))?(\?.*)?$/);
+      if (match) {
+        const [, base, existingDb, query = ''] = match;
+        const dbName = `${existingDb?.trim() || 'swaniki_radar'}_test`;
+        targetUri = `${base}/${dbName}${query}`;
+      }
+    }
+
+    await mongoose.connect(targetUri, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000,
       socketTimeoutMS: 30000,
@@ -28,7 +40,7 @@ export async function connectDatabase(): Promise<typeof mongoose> {
       // on cloud providers like Render and Atlas) without extra overhead.
       heartbeatFrequencyMS: 30000,
     });
-    console.log(`[Database] Connected to external MongoDB at ${redactMongoUri(env.MONGODB_URI)}`);
+    console.log(`[Database] Connected to external MongoDB at ${redactMongoUri(targetUri)}`);
     return mongoose;
   } catch (err: any) {
     if (env.NODE_ENV === 'production') {
@@ -41,8 +53,7 @@ export async function connectDatabase(): Promise<typeof mongoose> {
     console.log('[Database] Starting embedded MongoMemoryServer for development/testing...');
     
     try {
-      const dynamicImport = new Function('specifier', 'return import(specifier)');
-      const { MongoMemoryServer } = await dynamicImport('mongodb-memory-server');
+      const { MongoMemoryServer } = await import('mongodb-memory-server');
       memoryServer = await MongoMemoryServer.create();
       const memUri = memoryServer.getUri();
       await mongoose.connect(memUri);

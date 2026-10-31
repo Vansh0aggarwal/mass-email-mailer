@@ -33,7 +33,6 @@ export default defineConfig({
          * - "vendor-router"  : react-router-dom — downloaded once per deploy.
          * - "vendor-query"   : @tanstack/react-query — separate from React core.
          * - "vendor-charts"  : recharts — large (~150 KB gz); only needed on /analytics.
-         * - "vendor-forms"   : react-hook-form + resolvers — needed on /campaigns/new.
          * - "vendor-ui"      : lucide-react icons — shared across many pages.
          * All actual page code is split automatically by React.lazy() in App.tsx.
          */
@@ -49,9 +48,6 @@ export default defineConfig({
           }
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-') || id.includes('node_modules/victory-')) {
             return 'vendor-charts';
-          }
-          if (id.includes('node_modules/react-hook-form') || id.includes('node_modules/@hookform')) {
-            return 'vendor-forms';
           }
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-ui';

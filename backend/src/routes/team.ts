@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { User, UserOrgRole, UserStatus } from '../models/User.js';
+import { User } from '../models/User.js';
 import { ActivityLog } from '../models/ActivityLog.js';
 import { requireAuth } from '../middleware/session.js';
 import { AppError } from '../middleware/errorHandler.js';

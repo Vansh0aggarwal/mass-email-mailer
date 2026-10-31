@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { ImportSummary, ImportJobStatus } from '../types';
+import { CustomFieldRow, ImportSummary, ImportJobStatus } from '../types';
 import { Upload, Check, FileText, Info, Download, RotateCw, Eye } from 'lucide-react';
 import { FIXED_FIELD_DEFS, guessColumnMapping, normalizeTokenKey } from '../lib/campaign';
 import { describeImportError, formatBytes } from '../lib/imports';
@@ -9,12 +9,6 @@ import { CsvImportProgressModal } from '../components/imports/CsvImportProgressM
 
 const PIPELINE = ['1. Upload', '2. Map fields', '3. Import', '4. Results'];
 const MAX_VISIBLE_ERRORS = 50;
-
-interface CustomFieldRow {
-  source: string;
-  target: string;
-  enabled: boolean;
-}
 
 interface JobRowError {
   row: number;

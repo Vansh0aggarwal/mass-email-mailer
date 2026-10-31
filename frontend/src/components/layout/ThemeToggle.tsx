@@ -9,8 +9,8 @@ const OPTIONS: { value: Theme; label: string; description: string; icon: typeof 
   { value: 'system', label: 'System', description: 'Match your device appearance', icon: Monitor },
 ];
 
-export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+export function ThemeToggle({ variant = 'header' }: { variant?: 'header' | 'rail' }) {
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -25,6 +25,26 @@ export function ThemeToggle() {
   }, [isOpen]);
 
   const ActiveIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor;
+
+  if (variant === 'rail') {
+    const RailIcon = resolvedTheme === 'dark' ? Moon : Sun;
+    const nextLabel = resolvedTheme === 'dark' ? 'light' : 'dark';
+
+    return (
+      <button
+        type="button"
+        onClick={() => setTheme(nextLabel)}
+        aria-label={`Switch to ${nextLabel} theme`}
+        aria-pressed={resolvedTheme === 'dark'}
+        className="group relative flex h-11 w-11 items-center justify-center rounded-xl text-ink-muted transition-colors hover:bg-surface-3 hover:text-ink"
+      >
+        <RailIcon className="h-[18px] w-[18px]" />
+        <span className="app-rail-tooltip" role="tooltip">
+          Switch Theme
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="relative" ref={menuRef}>

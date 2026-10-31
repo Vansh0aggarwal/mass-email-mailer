@@ -10,6 +10,7 @@ export default {
       colors: {
         // Semantic, theme-aware tokens (see index.css :root / .dark)
         app: 'rgb(var(--app) / <alpha-value>)',
+        block: 'rgb(var(--block) / <alpha-value>)',
         surface: {
           DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
           2: 'rgb(var(--surface-2) / <alpha-value>)',

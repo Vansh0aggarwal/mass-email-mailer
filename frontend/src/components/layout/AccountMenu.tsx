@@ -12,9 +12,16 @@ import { EmailAccount } from '../../types';
 import { ConfirmationModal } from '../common/ConfirmationModal';
 import { Avatar } from '../shared/Avatar';
 import { startGmailOAuth } from '../../lib/api';
-import { mailApi } from '../../lib/mail';
+import { mailApi, mailKeys } from '../../lib/mail';
 
-export function AccountMenu() {
+export interface AccountMenuProps {
+  /** Header pill or the left rail's account area. */
+  variant?: 'header' | 'rail';
+  /** Rail only: render the identity block when the rail is expanded. */
+  expanded?: boolean;
+}
+
+export function AccountMenu({ variant = 'header', expanded = true }: AccountMenuProps) {
   const { user, organizations, currentOrgId, userRole, logout } = useAuth();
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
@@ -47,7 +54,7 @@ export function AccountMenu() {
   );
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['mailboxes'],
+    queryKey: mailKeys.mailboxes,
     queryFn: () => mailApi.listMailboxes(),
     enabled: !!user,
   });
@@ -62,25 +69,15 @@ export function AccountMenu() {
   };
 
   const disconnectMutation = useMutation({
-    mutationFn: async (email: string) => {
-      const res = await fetch(`/api/v1/integrations/google/gmail/${encodeURIComponent(email)}/disconnect`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || 'Failed to disconnect Gmail');
-      }
-      return res.json();
-    },
+    mutationFn: (email: string) => mailApi.disconnectGmail(email),
     onSuccess: (resData) => {
       const targetEmail = disconnectTarget?.emailAddress;
       setIsDisconnectModalOpen(false);
       setDisconnectTarget(null);
-      queryClient.invalidateQueries({ queryKey: ['mailboxes'] });
+      queryClient.invalidateQueries({ queryKey: mailKeys.mailboxes });
       if (targetEmail) queryClient.removeQueries({ queryKey: ['threads', targetEmail] });
       queryClient.invalidateQueries({ queryKey: ['threads'] });
-      showFeedback(resData.message || 'Gmail disconnected successfully.');
+      showFeedback(resData.message || resData.revocationWarning || 'Gmail disconnected successfully.');
     },
     onError: (err: any) => {
       showFeedback(`Disconnection failed: ${err.message}`);
@@ -133,42 +130,65 @@ export function AccountMenu() {
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2.5 p-1.5 pl-2.5 pr-3 rounded-full bg-surface-2 hover:bg-surface-3 border border-line transition-colors text-left active:scale-[0.98]"
-        aria-label="Account menu"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-      >
-        <Avatar user={user} size={28} />
+      {variant === 'rail' && !expanded ? (
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full flex items-center justify-center p-1.5 rounded-xl bg-surface-2 hover:bg-surface-3 border border-line transition-colors active:scale-[0.98]"
+          aria-label={`Account menu for ${displayName}`}
+          title={`${displayName} · ${userRole.toUpperCase()}`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+        >
+          <Avatar user={user} size={26} />
+        </button>
+      ) : (
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={
+            variant === 'rail'
+              ? 'w-full flex items-center gap-2.5 p-2 rounded-xl bg-surface-2 hover:bg-surface-3 border border-line transition-colors text-left active:scale-[0.98]'
+              : 'flex items-center gap-2.5 p-1.5 pl-2.5 pr-3 rounded-full bg-surface-2 hover:bg-surface-3 border border-line transition-colors text-left active:scale-[0.98]'
+          }
+          aria-label="Account menu"
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+        >
+          <Avatar user={user} size={variant === 'rail' ? 32 : 28} />
 
-        <div className="hidden sm:block text-left">
-          <div className="text-xs font-semibold text-ink leading-tight truncate max-w-[120px]">
-            {displayName}
+          <div className={variant === 'rail' ? 'min-w-0 flex-1 text-left' : 'hidden sm:block text-left'}>
+            <div className="text-xs font-semibold text-ink leading-tight truncate">
+              {displayName}
+            </div>
+            <div className="text-[10px] text-ink-subtle flex items-center gap-1 min-w-0">
+              {variant === 'rail' ? (
+                <span className="truncate">
+                  {userRole.toUpperCase()} · {orgName}
+                </span>
+              ) : isGmailConnected ? (
+                <span className="text-success flex items-center gap-1">
+                  <span className="status-dot" />
+                  Gmail connected
+                </span>
+              ) : (
+                <span>{userRole.toUpperCase()}</span>
+              )}
+            </div>
           </div>
-          <div className="text-[10px] text-ink-subtle flex items-center gap-1">
-            {isGmailConnected ? (
-              <span className="text-success flex items-center gap-1">
-                <span className="status-dot" />
-                Gmail connected
-              </span>
-            ) : (
-              <span>{userRole.toUpperCase()}</span>
-            )}
-          </div>
-        </div>
 
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-ink-subtle transition-transform duration-200 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-ink-subtle shrink-0 transition-transform duration-200 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+      )}
 
       {isOpen && (
         <div
           role="menu"
-          className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-1.5rem)] p-4 bg-surface border border-line rounded-xl shadow-pop z-50 space-y-4 animate-scale-in"
+          className={`absolute ${
+            variant === 'rail' ? 'left-0 bottom-full mb-2' : 'right-0 mt-2'
+          } w-80 max-w-[calc(100vw-1.5rem)] p-4 bg-surface border border-line rounded-xl shadow-pop z-50 space-y-4 animate-scale-in`}
         >
           <div className="flex items-start gap-3 pb-3 border-b border-line">
             <Avatar user={user} size={40} className="rounded-xl shrink-0" />

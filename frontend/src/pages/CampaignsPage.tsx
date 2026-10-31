@@ -14,10 +14,13 @@ import {
   ChevronRight,
   X,
   Inbox,
+  Layers,
+  UserRound,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Campaign } from '../types';
 import { campaignStatusMeta } from '../lib/campaign';
+import { displayUserName, formatAuditDate } from '../lib/ownership';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 
 export function CampaignsPage() {
@@ -76,7 +79,10 @@ export function CampaignsPage() {
       const matchesSearch =
         !searchQuery.trim() ||
         c.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
-        c.mailboxId.toLowerCase().includes(searchQuery.toLowerCase().trim());
+        c.mailboxId.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+        `${c.createdByUser?.fullName || ''} ${c.createdByUser?.email || ''}`
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase().trim());
 
       const matchesStatus =
         statusFilter === 'all'
@@ -137,6 +143,13 @@ export function CampaignsPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
+          <Link
+            to="/campaigns/splits"
+            className="ios-btn-secondary px-4 py-2 text-xs font-semibold inline-flex items-center gap-2"
+          >
+            <Layers className="w-4 h-4" />
+            Split import
+          </Link>
           <Link
             to="/campaigns/new"
             className="ios-btn-primary px-4 py-2 text-xs font-semibold inline-flex items-center gap-2"
@@ -315,6 +328,10 @@ export function CampaignsPage() {
                           <span>{c.repliesReceived} replies</span>
                         </span>
                       )}
+                      <span className="inline-flex items-center gap-1">
+                        <UserRound className="w-3 h-3 text-ink-subtle" />
+                        <span>{displayUserName(c.createdByUser, c.createdBy)}</span>
+                      </span>
                       <span>
                         {c.steps.length} step{c.steps.length === 1 ? '' : 's'}
                       </span>
@@ -323,9 +340,10 @@ export function CampaignsPage() {
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-[11px] text-ink-subtle tabular-nums font-mono">
-                      {new Date(c.createdAt).toLocaleDateString()}
-                    </span>
+                    <div className="flex flex-col items-end gap-0.5 text-[10px] text-ink-subtle tabular-nums font-mono">
+                      <span>Created {formatAuditDate(c.createdAt)}</span>
+                      <span>Updated {formatAuditDate(c.updatedAt)}</span>
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => {

@@ -22,7 +22,7 @@ import { EmailAccount, CalendarAccount, ParsedMeetingResult, CreatedCalendarEven
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { api, startGmailOAuth } from '../lib/api';
-import { mailApi } from '../lib/mail';
+import { mailApi, mailKeys } from '../lib/mail';
 
 export function IntegrationsPage() {
   const queryClient = useQueryClient();
@@ -37,7 +37,7 @@ export function IntegrationsPage() {
   const urlError = searchParams.get('error');
 
   const { data: mailboxes = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['mailboxes'],
+    queryKey: mailKeys.mailboxes,
     queryFn: () => mailApi.listMailboxes(),
   });
 
@@ -70,7 +70,7 @@ export function IntegrationsPage() {
 
   useEffect(() => {
     if (justConnected) {
-      queryClient.invalidateQueries({ queryKey: ['mailboxes'] });
+      queryClient.invalidateQueries({ queryKey: mailKeys.mailboxes });
       queryClient.invalidateQueries({ queryKey: ['threads'] });
       setActionMessage('Gmail connected successfully! Mailbox authorization is active.');
       setTimeout(() => setActionMessage(null), 5000);
@@ -103,13 +103,13 @@ export function IntegrationsPage() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['mailboxes'] });
+      queryClient.invalidateQueries({ queryKey: mailKeys.mailboxes });
       queryClient.invalidateQueries({ queryKey: ['threads'] });
       setActionMessage(`Inbox synchronized successfully. ${data.data?.syncedCount || 0} threads updated.`);
       setTimeout(() => setActionMessage(null), 5000);
     },
     onError: (err: any) => {
-      queryClient.invalidateQueries({ queryKey: ['mailboxes'] });
+      queryClient.invalidateQueries({ queryKey: mailKeys.mailboxes });
       if (err.code === 'UNAUTHORIZED' || (err.status === 401 && err.code !== 'GMAIL_REAUTH_REQUIRED')) {
         setActionMessage('Session expired. Please sign in to Swaniki again.');
       } else if (err.code === 'GMAIL_REAUTH_REQUIRED' || err.requiresReconnect) {
@@ -122,23 +122,13 @@ export function IntegrationsPage() {
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: async (email: string) => {
-      const res = await fetch(`/api/v1/integrations/google/gmail/${encodeURIComponent(email)}/disconnect`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error?.message || 'Disconnect failed');
-      }
-      return res.json();
-    },
+    mutationFn: (email: string) => mailApi.disconnectGmail(email),
     onSuccess: (data, email) => {
       setIsConfirmDisconnectOpen(false);
-      queryClient.invalidateQueries({ queryKey: ['mailboxes'] });
+      queryClient.invalidateQueries({ queryKey: mailKeys.mailboxes });
       queryClient.removeQueries({ queryKey: ['threads', email] });
       queryClient.invalidateQueries({ queryKey: ['threads'] });
-      const warning = data.data?.revocationWarning;
+      const warning = data.revocationWarning;
       if (warning) {
         setActionMessage(`Gmail disconnected and synced mail deleted. Note: ${warning}`);
       } else {

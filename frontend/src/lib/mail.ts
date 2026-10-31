@@ -1,4 +1,4 @@
-import { ApiError } from './api';
+import { ApiError, authHeaders } from './api';
 import type { EmailAccount } from '../types';
 
 export type MailFolder =
@@ -89,66 +89,36 @@ export interface MailCounts {
   trash: number;
 }
 
-export interface ThreadListMeta {
-  page: number;
-  limit: number;
-  total: number;
-  hasMore: boolean;
-  folder: string;
-}
-
 const BASE_URL = '/api/v1';
-
-const ENTITY_MAP: Record<string, string> = {
-  '&amp;': '&',
-  '&lt;': '<',
-  '&gt;': '>',
-  '&quot;': '"',
-  '&#39;': "'",
-  '&nbsp;': ' ',
-};
-
-/**
- * Neutralises untrusted email content before it reaches the DOM.
- * The backend stores plain text bodies, but any HTML-ish markup that slips
- * through (or arrives from an HTML-only MIME part) is stripped of tags,
- * scripts and event handlers and returned as safe plain text.
- */
-export function sanitizeEmailBody(raw?: string): string {
-  if (!raw) return '';
-  let text = String(raw);
-  // Drop dangerous blocks entirely
-  text = text.replace(
-    /<\s*(script|style|iframe|object|embed|link|meta|form|svg)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
-    ''
-  );
-  text = text.replace(/<\s*(script|style|iframe|object|embed|link|meta|form|svg)[^>]*\/?>/gi, '');
-  // Turn structural boundaries into newlines
-  text = text.replace(/<\s*br\s*\/?>/gi, '\n');
-  text = text.replace(/<\s*\/\s*(p|div|tr|li|h[1-6]|blockquote)\s*>/gi, '\n');
-  // Strip every remaining tag (removes onerror/onclick attrs and javascript: URLs)
-  text = text.replace(/<[^>]*>/g, '');
-  // Decode a small set of common entities
-  text = text.replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m) => ENTITY_MAP[m] ?? m);
-  return text.replace(/\n{3,}/g, '\n\n').trim();
-}
 
 /** Builds auth headers, forwarding only a real bearer token. */
 export function mailAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = localStorage.getItem('radar_token');
-  // The HttpOnly session cookie is the source of truth. Stale localStorage ids
-  // (e.g. non-ObjectId dev-mock values) must not be forwarded as identity
-  // headers, which produced spurious 400 responses and phantom sessions.
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra,
-  };
+  return authHeaders(extra);
+}
+
+function triggerDownload(url: string, filename: string): void {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/**
+ * Hands a blob to the browser as a download. The object URL is revoked after a
+ * grace period so slow downloads are not cancelled mid-transfer.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 async function requestFull<T>(
   endpoint: string,
   options: RequestInit = {}
-): Promise<{ data: T; meta?: any }> {
+): Promise<{ data: T; meta?: any; message?: string }> {
   const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const headers = mailAuthHeaders({
     'Content-Type': 'application/json',
@@ -171,7 +141,7 @@ async function requestFull<T>(
     );
   }
 
-  return { data: body?.data as T, meta: body?.meta };
+  return { data: body?.data as T, meta: body?.meta, message: body?.message };
 }
 
 /** Builds the authenticated URL for an attachment / inline image. */
@@ -243,18 +213,29 @@ export async function downloadAttachment(
   if (!attachment.attachmentId) throw new ApiError('Attachment is not downloadable', 'ATTACHMENT_ERROR', 0);
   const objectUrl = await fetchAttachmentObjectUrl(mailbox, threadId, messageId, attachment.attachmentId);
   try {
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = attachment.filename || 'attachment';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    triggerDownload(objectUrl, attachment.filename || 'attachment');
   } finally {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
   }
 }
 
+
 const mailboxSegment = (mailbox: string) => encodeURIComponent(mailbox.toLowerCase());
+
+/** Payload returned when a Gmail mailbox is disconnected. */
+export interface GmailDisconnectResult {
+  emailAddress?: string;
+  status?: string;
+  alreadyDisconnected?: boolean;
+  googleRevoked?: boolean;
+  revocationWarning?: string;
+  threadsDeleted?: number;
+  messagesDeleted?: number;
+  sendAttemptsDeleted?: number;
+  followUpsDeleted?: number;
+  accountRemoved?: boolean;
+  message?: string;
+}
 
 export interface ThreadQuery {
   folder?: MailFolder;
@@ -356,11 +337,12 @@ export const mailApi = {
     return data;
   },
 
-  disconnectGmail: async (email: string) => {
-    const { data } = await requestFull(`/integrations/google/gmail/${encodeURIComponent(email)}/disconnect`, {
-      method: 'POST',
-    });
-    return data;
+  disconnectGmail: async (email: string): Promise<GmailDisconnectResult> => {
+    const { data, message } = await requestFull<Omit<GmailDisconnectResult, 'message'>>(
+      `/integrations/google/gmail/${encodeURIComponent(email)}/disconnect`,
+      { method: 'POST' }
+    );
+    return { ...(data || {}), message };
   },
 };
 
@@ -406,21 +388,6 @@ export function formatFullDate(input?: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-export function parseEmailList(raw?: string): MailAddress[] {
-  if (!raw || !raw.trim()) return [];
-  return raw
-    .split(',')
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      const match = chunk.match(/^(.*?)<([^>]+)>$/);
-      if (match) {
-        return { name: match[1].trim().replace(/^"|"$/g, ''), email: match[2].trim().toLowerCase() };
-      }
-      return { name: '', email: chunk.toLowerCase() };
-    });
 }
 
 export function formatAddressList(list?: MailAddress[]): string {

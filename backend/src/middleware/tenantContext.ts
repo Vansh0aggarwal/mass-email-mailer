@@ -1,5 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
-import { env } from '../config/env.js';
+import { sessionMiddleware } from './session.js';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'sales_rep' | 'viewer';
 
@@ -16,7 +15,5 @@ declare global {
     }
   }
 }
-
-import { sessionMiddleware } from './session.js';
 
 export const tenantContextMiddleware = sessionMiddleware;

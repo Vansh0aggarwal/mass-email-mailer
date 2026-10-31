@@ -263,7 +263,9 @@ export class GoogleOAuthService {
         'https://www.googleapis.com/auth/userinfo.email',
         'https://www.googleapis.com/auth/userinfo.profile',
       ],
-      login_hint: loginHint,
+      // Omitted entirely when undefined so Google's URL never carries an empty
+      // `login_hint=` parameter (which suppresses the account chooser hint).
+      ...(loginHint ? { login_hint: loginHint } : {}),
       state,
     });
   }

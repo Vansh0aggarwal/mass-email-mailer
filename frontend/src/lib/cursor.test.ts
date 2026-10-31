@@ -5,6 +5,7 @@ import {
   CURSOR_DEFAULT_SCALE,
   CURSOR_HOVER_SCALE,
   CURSOR_HOVER_SIZE,
+  CURSOR_LIGHT_INK,
   CURSOR_POINTER_QUERY,
   CURSOR_PRESS_SCALE,
   CURSOR_PRESS_SIZE,
@@ -14,7 +15,6 @@ import {
   EMBEDDED_SELECTOR,
   INTERACTIVE_SELECTOR,
   NATIVE_CURSOR_SELECTOR,
-  NON_TEXT_INPUT_TYPES,
   POSITION_SMOOTHING,
   REDUCED_MOTION_QUERY,
   TEXT_INPUT_SELECTOR,
@@ -61,14 +61,14 @@ describe('cursor state resolution', () => {
 describe('cursor geometry', () => {
   it('uses the requested diameters', () => {
     expect(CURSOR_SIZE).toBe(10);
-    expect(CURSOR_HOVER_SIZE).toBe(17);
-    expect(CURSOR_PRESS_SIZE).toBe(25);
+    expect(CURSOR_HOVER_SIZE).toBe(12);
+    expect(CURSOR_PRESS_SIZE).toBe(13);
   });
 
   it('derives the animation scales from a 10px dot', () => {
     expect(CURSOR_DEFAULT_SCALE).toBe(1);
-    expect(CURSOR_HOVER_SCALE).toBeCloseTo(1.7, 5);
-    expect(CURSOR_PRESS_SCALE).toBeCloseTo(2.5, 5);
+    expect(CURSOR_HOVER_SCALE).toBeCloseTo(1.2, 5);
+    expect(CURSOR_PRESS_SCALE).toBeCloseTo(1.3, 5);
   });
 
   it('stays above every overlay in the application', () => {
@@ -129,13 +129,6 @@ describe('interaction detection', () => {
     }
   });
 
-  it('treats every non text input type as a control', () => {
-    expect(NON_TEXT_INPUT_TYPES).toContain('checkbox');
-    expect(NON_TEXT_INPUT_TYPES).toContain('submit');
-    expect(NON_TEXT_INPUT_TYPES).not.toContain('text');
-    expect(NON_TEXT_INPUT_TYPES).not.toContain('email');
-  });
-
   it('hides the dot inside embedded documents', () => {
     expect(EMBEDDED_SELECTOR).toContain('iframe');
     expect(EMBEDDED_SELECTOR).toContain('embed');
@@ -149,7 +142,7 @@ describe('capability queries', () => {
     expect(CURSOR_POINTER_QUERY).toContain('pointer: fine');
   });
 
-  it('keeps the native cursor when reduced motion is requested', () => {
+  it('detects a reduced-motion preference', () => {
     expect(REDUCED_MOTION_QUERY).toContain('prefers-reduced-motion');
   });
 });
@@ -223,7 +216,7 @@ describe('cursor scale resolution', () => {
       CURSOR_SPRINGS.press,
     );
     // Re-entering an interactive element mid-contraction expands again.
-    expect(springForScale(1.2, CURSOR_HOVER_SCALE, false)).toBe(CURSOR_SPRINGS.hoverIn);
+    expect(springForScale(1.1, CURSOR_HOVER_SCALE, false)).toBe(CURSOR_SPRINGS.hoverIn);
   });
 });
 
@@ -300,13 +293,27 @@ describe('cursor spring physics', () => {
 
 describe('cursor stylesheet contract', () => {
   const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
-  const block = css.slice(css.indexOf('.custom-cursor'), css.indexOf('/* Overlay scrollbar */'));
+  const block = css.slice(css.indexOf('.custom-cursor'), css.indexOf('/* Scrollbars'));
   const declarations = block.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('paints a solid circle in the palette ink with no border', () => {
+  it('paints a solid circle in the theme ink with no border', () => {
     expect(declarations).toMatch(/\.custom-cursor__dot\s*\{[^}]*border-radius:\s*50%/);
-    expect(declarations).toContain(`background: ${CURSOR_COLOR};`);
+    expect(declarations).toMatch(/\.custom-cursor__dot\s*\{[^}]*background:\s*var\(--cursor-dot\)/);
     expect(declarations).not.toMatch(/(^|[^-])border:\s/);
+  });
+
+  it('keeps the dot solid and visible in both themes', () => {
+    const light = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dark = css.match(/\.dark\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(light).toMatch(new RegExp(`--cursor-dot:\\s*${CURSOR_LIGHT_INK}`, 'i'));
+    expect(dark).toMatch(new RegExp(`--cursor-dot:\\s*${CURSOR_COLOR}`, 'i'));
+
+    const dot = declarations.match(/\.custom-cursor__dot\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(dot).toMatch(/opacity:\s*1/);
+    expect(dot).not.toMatch(/rgba?\(/);
+    // No per-theme cursor rules may override the token.
+    expect(declarations).not.toMatch(/\.dark[^{]*custom-cursor/);
+    expect(css).not.toContain('--cursor-ink');
   });
 
   it('starts as a 10px dot and leaves scaling to the animation loop', () => {

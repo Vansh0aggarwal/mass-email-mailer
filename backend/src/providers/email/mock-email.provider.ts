@@ -4,7 +4,7 @@ import { IEmailProvider, SendMessageOptions, ProviderSendResult } from './email-
 export class MockEmailProvider implements IEmailProvider {
   public name = 'mock_provider';
 
-  async sendMessage(mailboxEmail: string, options: SendMessageOptions): Promise<ProviderSendResult> {
+  async sendMessage(_mailboxEmail: string, options: SendMessageOptions): Promise<ProviderSendResult> {
     // Generate realistic simulated message and thread IDs
     const randomHex = crypto.randomBytes(8).toString('hex');
     const messageId = `sim_msg_${randomHex}@swaniki-mock.local`;

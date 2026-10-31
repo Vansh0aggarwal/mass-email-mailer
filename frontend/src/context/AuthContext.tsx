@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthUser, Organization } from '../types';
+import { authHeaders } from '../lib/api';
 
 export interface LogoutOptions {
   /** Also disconnect Gmail mailboxes and delete locally synced mail data. */
@@ -69,17 +70,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = async () => {
     try {
-      const token = localStorage.getItem('radar_token');
       const orgId = localStorage.getItem('radar_org_id');
       const role = localStorage.getItem('radar_user_role');
 
-      // The HttpOnly session cookie is the source of truth. Do NOT forward
-      // localStorage ids as x-user-id / x-organization-id identity headers:
-      // stale or dev-mock values are not valid ObjectIds and the server would
-      // reject them (400). Only a real bearer token is forwarded, if present.
+      // The HttpOnly session cookie is the source of truth. Only a real bearer
+      // token is forwarded, if present.
       const res = await fetch('/api/v1/auth/me', {
         credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
       });
       if (res.ok) {
         const json = await res.json();
@@ -223,14 +221,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
-      const token = localStorage.getItem('radar_token');
       const res = await fetch('/api/v1/auth/logout', {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
       });
 

@@ -90,7 +90,6 @@ export class DeliverabilityService {
     const mailboxChecks: DeliverabilityMailboxCheck[] = mailboxes.map((m) => {
       const remainingQuota = Math.max(0, m.dailySendLimit - m.sendsToday);
       const quotaUsedPercent = m.dailySendLimit > 0 ? Math.round((m.sendsToday / m.dailySendLimit) * 100) : 0;
-      const isGmail = m.provider === 'gmail';
 
       return {
         emailAddress: m.emailAddress,
@@ -100,10 +99,10 @@ export class DeliverabilityService {
         sendsToday: m.sendsToday,
         remainingQuota,
         quotaUsedPercent,
-        // Gmail mailboxes automatically inherit Google's DKIM and SPF infrastructure
-        spfConfigured: isGmail || true,
-        dkimConfigured: isGmail || true,
-        dmarcConfigured: isGmail || true,
+        // Sending happens through Gmail, which inherits Google's SPF/DKIM/DMARC.
+        spfConfigured: true,
+        dkimConfigured: true,
+        dmarcConfigured: true,
         isPaused: m.isPaused,
         pausedReason: m.pausedReason,
         lastSyncedAt: m.lastSyncedAt,

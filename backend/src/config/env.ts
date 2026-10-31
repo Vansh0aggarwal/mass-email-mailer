@@ -35,18 +35,34 @@ const envSchema = z.object({
    * (multer) so it does NOT go through this limit — raising this just to
    * support CSV uploads is unnecessary and opens a DoS vector. */
   JSON_BODY_LIMIT: z.string().default('2mb'),
-  /** Maximum accepted CSV/Excel upload size in bytes (default 100 MB).
-   * 10 GB was the previous default — dangerously large for a 512 MB server.
-   * Operators who need larger files must override this env var explicitly. */
-  IMPORT_MAX_FILE_BYTES: z.string().transform((val) => parseInt(val, 10)).default('104857600'),
+  /** Maximum accepted upload size, in megabytes (default 2 GB).
+   * The legacy byte-exact override below wins when explicitly configured. */
+  MAX_UPLOAD_SIZE_MB: z.string().transform((val) => parseInt(val, 10)).default('2048'),
+  /** Explicit byte override kept for existing deployments. */
+  IMPORT_MAX_FILE_BYTES: z.string().transform((val) => parseInt(val, 10)).optional(),
+  /** Default chunk size for resumable uploads, in megabytes (default 8 MB). */
+  UPLOAD_CHUNK_SIZE_MB: z.string().transform((val) => parseInt(val, 10)).default('8'),
+  /** Explicit chunk byte override kept for existing deployments. */
+  IMPORT_CHUNK_SIZE_BYTES: z.string().transform((val) => parseInt(val, 10)).optional(),
   /** Maximum number of data rows accepted in a single import (default 10 million). */
   IMPORT_MAX_ROWS: z.string().transform((val) => parseInt(val, 10)).default('10000000'),
-  /** Default chunk size for resumable multipart streaming upload (default 10 MB). */
-  IMPORT_CHUNK_SIZE_BYTES: z.string().transform((val) => parseInt(val, 10)).default('10485760'),
   /** Files larger than this threshold (default 50 MB) use fast row estimation for initial preview. */
   IMPORT_ESTIMATION_THRESHOLD_BYTES: z.string().transform((val) => parseInt(val, 10)).default('52428800'),
-  /** Number of rows persisted per bulk database write batch (500-1000 recommended). */
+  /** Source rows staged per bulk write during split analysis (500-5000 recommended). */
+  CSV_IMPORT_BATCH_SIZE: z.string().transform((val) => parseInt(val, 10)).default('2000'),
+  /** Number of rows persisted per bulk database write batch (single-campaign import). */
   IMPORT_BATCH_SIZE: z.string().transform((val) => parseInt(val, 10)).default('500'),
+  /** Number of rows staged per bulk write inside a single campaign generator batch. */
+  CAMPAIGN_CREATION_BATCH_SIZE: z.string().transform((val) => parseInt(val, 10)).default('10'),
+  /** How many child campaigns may be generated concurrently (1 = strictly serial). */
+  CAMPAIGN_CREATION_CONCURRENCY: z.string().transform((val) => parseInt(val, 10)).default('1'),
+  /** Retries for a transient failure while creating one child campaign. */
+  CAMPAIGN_CREATION_MAX_RETRIES: z.string().transform((val) => parseInt(val, 10)).default('3'),
+  /** Contacts-per-campaign preselected in the splitter UI before the user confirms. */
+  CAMPAIGN_SPLIT_DEFAULT_CONTACTS_PER_CAMPAIGN: z
+    .string()
+    .transform((val) => parseInt(val, 10))
+    .default('100'),
   /** Maximum number of concurrent bulk write batches (memory bound). */
   IMPORT_WRITE_CONCURRENCY: z.string().transform((val) => parseInt(val, 10)).default('2'),
   /** Number of sample rows returned by the streaming inspector. */
@@ -59,6 +75,30 @@ const envSchema = z.object({
   IMPORT_TEMP_TTL_HOURS: z.string().transform((val) => parseInt(val, 10)).default('24'),
   EMAIL_PROVIDER: z.enum(['mock', 'gmail', 'smtp']).default('mock'),
   EMAIL_DAILY_SEND_LIMIT: z.string().transform((val) => parseInt(val, 10)).default('100'),
+  /**
+   * Brand identity embedded in designed emails. Every value is operator
+   * configurable; nothing in the signature is invented at render time.
+   */
+  EMAIL_BRAND_NAME: z.string().default('Swaniki'),
+  EMAIL_BRAND_TAGLINE: z.string().default('New Business Radar'),
+  EMAIL_BRAND_WEBSITE: z.string().default('https://swaniki.dev'),
+  EMAIL_BRAND_CONTACT_EMAIL: z.string().default('hello@swaniki.dev'),
+  EMAIL_BRAND_CONTACT_PHONE: z.string().default(''),
+  EMAIL_BRAND_ADDRESS: z.string().default(''),
+  /** Destination used by preset CTA cards; operators can override it per email. */
+  EMAIL_BRAND_CTA_URL: z.string().default(''),
+  /** Custom SMTP transport used by mailboxes with provider 'smtp'. */
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.string().transform((val) => parseInt(val, 10)).default('587'),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((val) => val === 'true'),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  SMTP_FROM_NAME: z.string().default(''),
+  /** Public unsubscribe endpoint appended to designed emails when configured. */
+  EMAIL_UNSUBSCRIBE_URL: z.string().default(''),
   /**
    * Gmail API quota units allowed per mailbox per minute.
    * Google's published limit is 6,000 units/minute/user ("Units per minute per
@@ -125,12 +165,19 @@ const envSchema = z.object({
   GOOGLE_GMAIL_REDIRECT_URI: z.string().default('http://localhost:5000/api/v1/integrations/google/gmail/callback'),
 });
 
-let validatedEnv: z.infer<typeof envSchema>;
+let parsedEnv: z.infer<typeof envSchema>;
 try {
-  validatedEnv = envSchema.parse(process.env);
+  parsedEnv = envSchema.parse(process.env);
 } catch (err: any) {
   console.error('Invalid environment variables detected:', err?.format ? err.format() : err);
   process.exit(1);
 }
 
-export const env = validatedEnv;
+// Resolve the MB-based upload settings into the byte values the services use.
+// An explicit byte override (legacy env var) always wins, so existing
+// deployments keep their exact configured limits.
+export const env = {
+  ...parsedEnv,
+  IMPORT_MAX_FILE_BYTES: parsedEnv.IMPORT_MAX_FILE_BYTES ?? parsedEnv.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+  IMPORT_CHUNK_SIZE_BYTES: parsedEnv.IMPORT_CHUNK_SIZE_BYTES ?? parsedEnv.UPLOAD_CHUNK_SIZE_MB * 1024 * 1024,
+};

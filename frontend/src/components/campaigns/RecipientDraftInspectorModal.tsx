@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Sparkles,
@@ -16,9 +16,16 @@ import {
   RotateCcw,
   Info,
   Globe,
+  Monitor,
+  Smartphone,
+  Code,
+  Copy,
+  FileEdit,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { getAuditAnalysis, getRecipientCustomField } from '../../lib/targeting';
 import { Campaign, CampaignRecipient } from '../../types';
+import { renderEnterpriseEmail } from '../../lib/enterprise-email-html';
 
 interface RecipientDraftInspectorModalProps {
   campaign: Campaign;
@@ -26,62 +33,6 @@ interface RecipientDraftInspectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdated: () => void;
-}
-
-function getRecipientCustomField(recipient: CampaignRecipient, keys: string[]): string | undefined {
-  const custom = recipient.customFields;
-  if (!custom) return undefined;
-  const isMap = typeof (custom as any).get === 'function';
-  for (const k of keys) {
-    if (isMap) {
-      const val = (custom as any).get(k);
-      if (val !== undefined && val !== null && val !== '') return String(val).trim();
-    } else {
-      const val = (custom as Record<string, any>)[k];
-      if (val !== undefined && val !== null && val !== '') return String(val).trim();
-    }
-  }
-  return undefined;
-}
-
-function getAuditAnalysis(websiteStatus?: string, httpCode?: string, techSignal?: string) {
-  const code = (httpCode || '').trim();
-  const status = (websiteStatus || '').trim().toLowerCase();
-
-  if (code === '408' || code === '504' || status.includes('timeout') || status.includes('timed out')) {
-    return {
-      statusType: 'warning' as const,
-      headline: `Website status unverified (HTTP ${code || 'Timeout'})`,
-      explanation:
-        'The site timed out or the server could not be reached during the automated audit. Never claim the company lacks a website; state that the server timed out or could not be reached during audit.',
-    };
-  }
-  if (code === '404' || status.includes('not found')) {
-    return {
-      statusType: 'danger' as const,
-      headline: `Audit returned HTTP 404 Not Found`,
-      explanation: 'The audit URL was not found on the web server. Verify whether a new domain or landing page is active.',
-    };
-  }
-  if (code.startsWith('2') || status === 'live' || status === 'ok' || status === 'active') {
-    return {
-      statusType: 'success' as const,
-      headline: `Verified live website (HTTP ${code || '200'})`,
-      explanation: techSignal ? `Detected tech signal: ${techSignal}` : 'Site was accessible during audit.',
-    };
-  }
-  if (websiteStatus || httpCode) {
-    return {
-      statusType: 'neutral' as const,
-      headline: `Audit status: ${websiteStatus || 'HTTP ' + code}`,
-      explanation: techSignal ? `Tech signal: ${techSignal}` : 'Recorded during domain inspection.',
-    };
-  }
-  return {
-    statusType: 'neutral' as const,
-    headline: 'No automated site audit recorded',
-    explanation: 'Audit data was not provided in the uploaded dataset.',
-  };
 }
 
 export function RecipientDraftInspectorModal({
@@ -103,9 +54,23 @@ export function RecipientDraftInspectorModal({
   const [showTestModal, setShowTestModal] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState(campaign.mailboxId || '');
   const [showOriginal, setShowOriginal] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'edit' | 'desktop' | 'mobile' | 'html'>('edit');
+  const [copiedHtml, setCopiedHtml] = useState(false);
 
   const activeSlot = recipient.stepDrafts?.find((s) => s.stepIndex === selectedStepIndex);
   const activeDraft = activeSlot?.draft;
+
+  const enterpriseEmail = useMemo(() => {
+    const rawSubject = subject || activeDraft?.subject || `Outreach for ${recipient.companyName || recipient.email}`;
+    const rawBody = bodyText || activeDraft?.bodyText || '';
+    return renderEnterpriseEmail({
+      subject: rawSubject,
+      bodyText: rawBody,
+      recipientName: recipient.name,
+      recipientEmail: recipient.email,
+      companyName: recipient.companyName,
+    });
+  }, [subject, bodyText, recipient.name, recipient.email, recipient.companyName, activeDraft?.subject, activeDraft?.bodyText]);
 
   // Sync state whenever selected step or recipient changes
   useEffect(() => {
@@ -662,67 +627,225 @@ export function RecipientDraftInspectorModal({
                 </div>
               )}
 
-              {/* Subject Field */}
-              <div>
-                <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
-                  Subject Line
-                </label>
-                <input
-                  type="text"
-                  className="input px-3 py-2 text-xs w-full font-medium"
-                  value={subject}
-                  disabled={activeSlot?.status === 'sent'}
-                  onChange={(e) => {
-                    setSubject(e.target.value);
-                    setIsDirty(true);
-                  }}
-                  placeholder="Subject line..."
-                />
-              </div>
-
-              {/* Body Text Field */}
-              <div>
-                <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
-                  Email Body
-                </label>
-                <textarea
-                  rows={9}
-                  className="input px-3 py-2 text-xs w-full font-sans leading-relaxed resize-y"
-                  value={bodyText}
-                  disabled={activeSlot?.status === 'sent'}
-                  onChange={(e) => {
-                    setBodyText(e.target.value);
-                    setIsDirty(true);
-                  }}
-                  placeholder="Email body text..."
-                />
-              </div>
-
-              {/* Original CSV Copy toggle */}
-              {activeDraft.originalSubject || activeDraft.originalBodyText ? (
-                <div className="border border-line/60 rounded-xl p-3 bg-surface-2 text-xs">
+              {/* View / Edit Mode Selector */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3">
+                <div className="flex items-center gap-1.5 p-1 bg-surface-2 rounded-xl border border-line/70">
                   <button
-                    onClick={() => setShowOriginal((v) => !v)}
-                    className="text-[11px] font-semibold text-ink-muted hover:text-ink flex items-center gap-1.5"
+                    type="button"
+                    onClick={() => setPreviewMode('edit')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                      previewMode === 'edit'
+                        ? 'bg-surface text-ink shadow-sm border border-line/40'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
                   >
-                    <span>{showOriginal ? 'Hide' : 'View'} original imported CSV copy</span>
+                    <FileEdit className="w-3.5 h-3.5" />
+                    <span>Edit Copy</span>
                   </button>
-                  {showOriginal && (
-                    <div className="mt-3 space-y-2 pt-2 border-t border-line/40 text-[11px] text-ink-muted">
-                      <div>
-                        <span className="font-semibold text-ink">Original Subject: </span>
-                        {activeDraft.originalSubject || '—'}
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('desktop')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                      previewMode === 'desktop'
+                        ? 'bg-surface text-brand shadow-sm border border-line/40'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>Desktop Preview (800px)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('mobile')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                      previewMode === 'mobile'
+                        ? 'bg-surface text-brand shadow-sm border border-line/40'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Mobile (375px)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('html')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                      previewMode === 'html'
+                        ? 'bg-surface text-ink shadow-sm border border-line/40'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                    <span>HTML Code</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> 100% Text Preserved
+                  </span>
+                  <span className="text-ink-subtle hidden sm:inline">•</span>
+                  <span className="text-ink-muted hidden sm:inline font-mono">Swaniki Enterprise HTML</span>
+                </div>
+              </div>
+
+              {previewMode === 'edit' && (
+                <>
+                  {/* Subject Field */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                      Subject Line
+                    </label>
+                    <input
+                      type="text"
+                      className="input px-3 py-2 text-xs w-full font-medium"
+                      value={subject}
+                      disabled={activeSlot?.status === 'sent'}
+                      onChange={(e) => {
+                        setSubject(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="Subject line..."
+                    />
+                  </div>
+
+                  {/* Body Text Field */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                      Email Body
+                    </label>
+                    <textarea
+                      rows={9}
+                      className="input px-3 py-2 text-xs w-full font-sans leading-relaxed resize-y"
+                      value={bodyText}
+                      disabled={activeSlot?.status === 'sent'}
+                      onChange={(e) => {
+                        setBodyText(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="Email body text..."
+                    />
+                  </div>
+
+                  {/* Original CSV Copy toggle */}
+                  {activeDraft.originalSubject || activeDraft.originalBodyText ? (
+                    <div className="border border-line/60 rounded-xl p-3 bg-surface-2 text-xs">
+                      <button
+                        onClick={() => setShowOriginal((v) => !v)}
+                        className="text-[11px] font-semibold text-ink-muted hover:text-ink flex items-center gap-1.5"
+                      >
+                        <span>{showOriginal ? 'Hide' : 'View'} original imported CSV copy</span>
+                      </button>
+                      {showOriginal && (
+                        <div className="mt-3 space-y-2 pt-2 border-t border-line/40 text-[11px] text-ink-muted">
+                          <div>
+                            <span className="font-semibold text-ink">Original Subject: </span>
+                            {activeDraft.originalSubject || '—'}
+                          </div>
+                          <div>
+                            <span className="font-semibold text-ink">Original Body: </span>
+                            <pre className="whitespace-pre-wrap font-sans mt-1 p-2 rounded bg-surface border border-line/40">
+                              {activeDraft.originalBodyText || '—'}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {previewMode === 'desktop' && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-line/70 bg-surface-2 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="text-[11px] text-ink-muted">
+                        <strong className="text-ink">To:</strong> {recipient.name || 'Recipient'} &lt;{recipient.email}&gt;
                       </div>
-                      <div>
-                        <span className="font-semibold text-ink">Original Body: </span>
-                        <pre className="whitespace-pre-wrap font-sans mt-1 p-2 rounded bg-surface border border-line/40">
-                          {activeDraft.originalBodyText || '—'}
-                        </pre>
+                      <div className="text-[11px] text-ink-muted truncate max-w-lg">
+                        <strong className="text-ink">Subject:</strong> {subject || activeDraft?.subject || 'Outreach'}
                       </div>
                     </div>
-                  )}
+                    <div className="text-[10px] text-ink-subtle uppercase tracking-wider font-semibold">
+                      Standard Desktop Viewport (800px Container)
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-line shadow-inner bg-[#F3F6FB] overflow-hidden flex justify-center p-3 sm:p-6 min-h-[540px]">
+                    <iframe
+                      title="Enterprise Email Desktop Preview"
+                      srcDoc={enterpriseEmail.html}
+                      className="w-full max-w-[820px] h-[640px] bg-white rounded-lg shadow-md border border-line/60"
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
                 </div>
-              ) : null}
+              )}
+
+              {previewMode === 'mobile' && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-line/70 bg-surface-2 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="text-[11px] text-ink-muted">
+                        <strong className="text-ink">Subject:</strong> {subject || activeDraft?.subject || 'Outreach'}
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-ink-subtle uppercase tracking-wider font-semibold">
+                      Mobile Responsive Viewport (375px Device Container)
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-line shadow-inner bg-[#E2E8F0] dark:bg-[#0F172A] overflow-hidden flex justify-center py-6 px-2 min-h-[520px]">
+                    {/* Mock Phone Frame */}
+                    <div className="w-[375px] max-w-full bg-[#172033] rounded-[36px] p-2.5 shadow-2xl border-2 border-slate-700/60">
+                      <div className="w-24 h-4 bg-slate-800 rounded-full mx-auto mb-2" />
+                      <div className="rounded-[24px] overflow-hidden bg-white shadow-inner">
+                        <iframe
+                          title="Enterprise Email Mobile Preview"
+                          srcDoc={enterpriseEmail.html}
+                          className="w-[355px] max-w-full h-[520px] bg-white border-none"
+                          sandbox="allow-same-origin"
+                        />
+                      </div>
+                      <div className="w-28 h-1 bg-slate-600 rounded-full mx-auto mt-2" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {previewMode === 'html' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-ink uppercase tracking-wider">
+                      Compiled HTML Output (Table-Based Inline CSS)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(enterpriseEmail.html);
+                        setCopiedHtml(true);
+                        setTimeout(() => setCopiedHtml(false), 2000);
+                      }}
+                      className="ios-btn-secondary px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5"
+                    >
+                      {copiedHtml ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="text-emerald-500">Copied to clipboard</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy HTML</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="p-3.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] leading-relaxed max-h-[460px] overflow-auto border border-slate-800">
+                    {enterpriseEmail.html}
+                  </pre>
+                </div>
+              )}
 
               {/* Error / Provider Message Info */}
               {activeSlot?.providerMessageId && (

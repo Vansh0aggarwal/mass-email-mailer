@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { EmailDraft } from '../models/EmailDraft.js';
 import { CampaignRecipient } from '../models/CampaignRecipient.js';
 import { Company } from '../models/Company.js';
-import { CompanyContact } from '../models/CompanyContact.js';
 import { aiGroundingService } from '../providers/ai/ai-grounding.service.js';
 import { replyAssistantService } from '../services/reply-assistant.service.js';
 import { buildAuditContextLines } from '../services/website-audit.service.js';

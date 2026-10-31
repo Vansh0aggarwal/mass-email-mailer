@@ -112,11 +112,12 @@ export function isImportJobRunning(jobId: string): boolean {
  */
 export async function inspectUploadedFile(params: {
   organizationId: string;
+  createdBy?: string;
   fileName: string;
   storedFilePath: string;
   fileBytes: number;
 }): Promise<ICSVImport> {
-  const { organizationId, fileName, storedFilePath, fileBytes } = params;
+  const { organizationId, createdBy, fileName, storedFilePath, fileBytes } = params;
 
   const source = fs.createReadStream(storedFilePath);
   let info: Awaited<ReturnType<typeof inspectCsvStream>>;
@@ -148,6 +149,7 @@ export async function inspectUploadedFile(params: {
 
   return CSVImport.create({
     organizationId,
+    createdBy,
     fileName,
     status: 'queued',
     storedFilePath,
@@ -395,10 +397,12 @@ async function runJob(jobId: string, organizationId: string): Promise<void> {
     return;
   }
 
-  const mapping = job.mapping as unknown as ColumnMapping;
   const customFieldMapping = (job.customFieldMapping || {}) as Record<string, string>;
   const duplicateStrategy = (job.duplicateStrategy || 'skip') as 'skip' | 'update';
   const scaleType = (job.scaleType || 'standard') as ScaleType;
+  // Original actor persisted when the job was created — never the current
+  // requester, so retries attribute records to the person who started them.
+  const createdBy = job.createdBy;
 
   const startCursor = job.lastProcessedRow || 0;
   const stats: ImportJobStats = {
@@ -512,6 +516,7 @@ async function runJob(jobId: string, organizationId: string): Promise<void> {
     if (rows.length > 0) {
       const result = await persistBatch({
         organizationId,
+        createdBy,
         rows,
         customFieldMapping,
         duplicateStrategy,
@@ -617,12 +622,13 @@ async function runJob(jobId: string, organizationId: string): Promise<void> {
  */
 async function persistBatch(ctx: {
   organizationId: string;
+  createdBy?: string;
   rows: ParsedCsvRow[];
   customFieldMapping: Record<string, string>;
   duplicateStrategy: 'skip' | 'update';
   stats: ImportJobStats;
 }): Promise<{ ok: boolean; errors: ReportError[] }> {
-  const { organizationId, rows, customFieldMapping, duplicateStrategy, stats } = ctx;
+  const { organizationId, createdBy, rows, customFieldMapping, duplicateStrategy, stats } = ctx;
   const errors: ReportError[] = [];
 
   const domains = new Set<string>();
@@ -773,6 +779,8 @@ async function persistBatch(ctx: {
       _id: companyId,
       organizationId,
       name: c.company_name,
+      createdBy,
+      createdVia: 'csv_import',
       domain: c.domain || undefined,
       websiteUrl: c.website_url || undefined,
       industry: c.industry || undefined,

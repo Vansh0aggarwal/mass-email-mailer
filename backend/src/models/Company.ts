@@ -2,9 +2,19 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export type AssessmentRating = 'A' | 'B' | 'C' | 'D' | 'F' | 'unrated';
 
+/** How the company record originally entered the workspace. */
+export type CompanyCreatedVia = 'manual' | 'csv_import' | 'api';
+
 export interface ICompany extends Document {
   organizationId: string;
   name: string;
+  /**
+   * Authenticated user who originally created the record. Absent on legacy
+   * rows created before ownership tracking existed — never back-filled.
+   */
+  createdBy?: string;
+  /** Original intake channel; immutable once written. */
+  createdVia?: CompanyCreatedVia;
   domain?: string;
   websiteUrl?: string;
   industry?: string;
@@ -24,6 +34,8 @@ const CompanySchema = new Schema<ICompany>(
   {
     organizationId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
+    createdBy: { type: String },
+    createdVia: { type: String, enum: ['manual', 'csv_import', 'api'] },
     domain: { type: String, trim: true, lowercase: true },
     websiteUrl: { type: String, trim: true },
     industry: { type: String, trim: true },

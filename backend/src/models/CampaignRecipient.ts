@@ -26,6 +26,13 @@ export interface ICampaignRecipient extends Document {
   organizationId: string;
   campaignId: mongoose.Types.ObjectId;
   rowNumber: number;
+  /**
+   * Authenticated user who added this recipient to the campaign. Independent
+   * of the campaign creator and the company creator.
+   */
+  addedBy?: string;
+  /** When the recipient was added. Absent on legacy rows. */
+  addedAt?: Date;
   companyId?: mongoose.Types.ObjectId;
   contactId?: mongoose.Types.ObjectId;
   email: string;
@@ -96,6 +103,8 @@ const CampaignRecipientSchema = new Schema<ICampaignRecipient>(
     organizationId: { type: String, required: true, index: true },
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true, index: true },
     rowNumber: { type: Number, required: true },
+    addedBy: { type: String },
+    addedAt: { type: Date },
     companyId: { type: Schema.Types.ObjectId, ref: 'Company' },
     contactId: { type: Schema.Types.ObjectId, ref: 'CompanyContact' },
     email: { type: String, required: true, trim: true, lowercase: true },

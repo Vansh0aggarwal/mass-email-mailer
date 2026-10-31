@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { google, gmail_v1 } from 'googleapis';
 import { IEmailProvider, SendMessageOptions, ProviderSendResult } from './email-provider.interface.js';
 import { EmailAccount } from '../../models/EmailAccount.js';
@@ -10,12 +11,12 @@ import { AppError } from '../../middleware/errorHandler.js';
 import {
   GMAIL_METHOD_QUOTA_COST,
   GmailQuotaExhaustedError,
-  computeBackoffDelay,
   extractGmailErrorInfo,
   gmailQuotaService,
   type GmailCallPriority,
 } from '../../services/gmail-quota.service.js';
 import { gmailApiMetrics } from '../../services/gmail-metrics.service.js';
+import { sanitizeHeaderValue } from '../../services/template-interpolation.service.js';
 
 /**
  * Detects the specific Gmail error returned when a stored `historyId` cursor is
@@ -61,45 +62,6 @@ export interface SyncOptions {
   pageSize?: number;
   query?: string;
   pageToken?: string;
-}
-
-const RETRYABLE_NETWORK_CODES = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'];
-
-/** True for transient Gmail/network failures worth retrying with backoff. */
-export function isRetryableGmailError(err: any): boolean {
-  if (!err) return false;
-  const status = err.status || err.response?.status;
-  if (status === 429) return true;
-  if (typeof status === 'number' && status >= 500 && status <= 599) return true;
-  const code = typeof err.code === 'string' ? err.code : '';
-  return RETRYABLE_NETWORK_CODES.includes(code);
-}
-
-/**
- * Executes a Gmail API call, retrying transient failures (429/5xx/network) with
- * exponential backoff **and jitter**, honouring Google's own retry guidance.
- *
- * Prefer {@link GmailProvider.gmailCall}: it additionally charges the call
- * against the shared per-mailbox quota budget and acquires a distributed
- * concurrency lease. This helper remains for callers that only need the retry
- * semantics.
- */
-export async function withGmailRetry<T = any>(fn: () => Promise<T>, attempts = 3, baseDelayMs = 300): Promise<T> {
-  let lastError: any;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastError = err;
-      const info = extractGmailErrorInfo(err);
-      if (!info.isRetryable || i === attempts - 1) {
-        throw err;
-      }
-      const delay = computeBackoffDelay(i, { baseMs: baseDelayMs, retryDelayMs: info.retryDelayMs });
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-  throw lastError;
 }
 
 /**
@@ -189,14 +151,6 @@ export function extractBodiesFromPayload(payload?: any): { text: string; html: s
 
   walk(payload);
   return { text, html };
-}
-
-/**
- * Backwards-compatible plain-text extractor built on {@link extractBodiesFromPayload}.
- */
-export function extractBodyFromPayload(payload?: any): string {
-  const { text, html } = extractBodiesFromPayload(payload);
-  return text || (html ? stripHtmlToText(html) : '');
 }
 
 /**
@@ -393,6 +347,17 @@ export class GmailProvider implements IEmailProvider {
     return GMAIL_METHOD_QUOTA_COST[method] ?? 10;
   }
 
+  /** Builds the 401 raised when a mailbox has to be reconnected. */
+  private reauthRequiredError(
+    mailboxEmail: string,
+    message = 'Gmail authorization expired or revoked. Please reconnect your account.'
+  ): AppError {
+    return new AppError(message, 401, 'GMAIL_REAUTH_REQUIRED', {
+      emailAddress: mailboxEmail,
+      requiresReconnect: true,
+    });
+  }
+
   /**
    * Marks a mailbox as requiring reconnection and pauses active sync to stop retry loops
    */
@@ -469,11 +434,9 @@ export class GmailProvider implements IEmailProvider {
 
     // Suppress repeated retries if account is in error state or requires reconnection
     if (account.status === 'error' || account.pausedReason?.includes('expired or revoked') || account.pausedReason?.includes('Reconnection required')) {
-      throw new AppError(
-        `Gmail account '${mailboxEmail}' authorization has expired or been revoked. Please reconnect the account.`,
-        401,
-        'GMAIL_REAUTH_REQUIRED',
-        { emailAddress: mailboxEmail, requiresReconnect: true }
+      throw this.reauthRequiredError(
+        mailboxEmail,
+        `Gmail account '${mailboxEmail}' authorization has expired or been revoked. Please reconnect the account.`
       );
     }
 
@@ -482,11 +445,9 @@ export class GmailProvider implements IEmailProvider {
     }
 
     if (!account.encryptedRefreshToken && (!account.encryptedAccessToken || (account.tokenExpiryDate && account.tokenExpiryDate.getTime() <= Date.now()))) {
-      throw new AppError(
-        `Gmail account '${mailboxEmail}' has an expired access token and no refresh token. Please reconnect the account.`,
-        401,
-        'GMAIL_REAUTH_REQUIRED',
-        { emailAddress: mailboxEmail, requiresReconnect: true }
+      throw this.reauthRequiredError(
+        mailboxEmail,
+        `Gmail account '${mailboxEmail}' has an expired access token and no refresh token. Please reconnect the account.`
       );
     }
 
@@ -545,42 +506,64 @@ export class GmailProvider implements IEmailProvider {
     return { gmail, oauth2Client, account };
   }
 
-  /**
-   * Builds an RFC 2822 compliant MIME message string
-   */
-  private sanitizeHeaderValue(value: string): string {
-    // Prevent header injection via CR/LF in user-supplied values
-    return String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  /** Base64-encodes a MIME body and wraps lines at the RFC 2045 limit. */
+  private encodeMimeBody(value: string): string {
+    const base64 = Buffer.from(String(value).replace(/\r?\n/g, '\r\n'), 'utf8').toString('base64');
+    return base64.match(/.{1,76}/g)?.join('\r\n') || '';
   }
 
+  /**
+   * Builds an RFC 2822 compliant MIME message string.
+   *
+   * Plain-text-only messages keep the historical 7bit layout. Messages with a
+   * rendered HTML body become multipart/alternative so clients that prefer HTML
+   * show the design while everything else keeps the plain-text version.
+   */
   private buildRfc2822Message(from: string, options: SendMessageOptions): string {
     const headers = [
-      `From: ${this.sanitizeHeaderValue(from)}`,
-      `To: ${this.sanitizeHeaderValue(options.to)}`,
+      `From: ${sanitizeHeaderValue(from)}`,
+      `To: ${sanitizeHeaderValue(options.to)}`,
     ];
 
     if (options.cc) {
-      headers.push(`Cc: ${this.sanitizeHeaderValue(options.cc)}`);
+      headers.push(`Cc: ${sanitizeHeaderValue(options.cc)}`);
     }
     if (options.bcc) {
-      headers.push(`Bcc: ${this.sanitizeHeaderValue(options.bcc)}`);
+      headers.push(`Bcc: ${sanitizeHeaderValue(options.bcc)}`);
     }
 
-    headers.push(
-      `Subject: ${this.sanitizeHeaderValue(options.subject)}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: 7bit'
-    );
+    headers.push(`Subject: ${sanitizeHeaderValue(options.subject)}`, 'MIME-Version: 1.0');
 
     if (options.inReplyTo) {
-      headers.push(`In-Reply-To: ${this.sanitizeHeaderValue(options.inReplyTo)}`);
+      headers.push(`In-Reply-To: ${sanitizeHeaderValue(options.inReplyTo)}`);
     }
     if (options.references || options.inReplyTo) {
-      headers.push(`References: ${this.sanitizeHeaderValue(options.references || options.inReplyTo || '')}`);
+      headers.push(`References: ${sanitizeHeaderValue(options.references || options.inReplyTo || '')}`);
     }
 
-    return `${headers.join('\r\n')}\r\n\r\n${options.body}`;
+    if (!options.html) {
+      headers.push('Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 7bit');
+      return `${headers.join('\r\n')}\r\n\r\n${options.body}`;
+    }
+
+    const boundary = `swaniki_alt_${crypto.randomBytes(12).toString('hex')}`;
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+
+    const parts = [
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      this.encodeMimeBody(options.body),
+      `--${boundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      this.encodeMimeBody(options.html),
+      `--${boundary}--`,
+    ];
+
+    return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
   }
 
   /**
@@ -625,12 +608,7 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (err.code === 401 || err.code === 'GMAIL_REAUTH_REQUIRED' || isInvalidGrantError(err)) {
         await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect your account.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
-        );
+        throw this.reauthRequiredError(mailboxEmail);
       }
 
       if (err.code === 'GMAIL_QUOTA_EXCEEDED') {
@@ -710,71 +688,6 @@ export class GmailProvider implements IEmailProvider {
         extractGmailErrorInfo(err).message || 'Gmail reconciliation lookup failed'
       );
       return null;
-    }
-  }
-
-  /**
-   * Fetches mailbox profile from Gmail
-   */
-  public async getProfile(mailboxEmail: string, organizationId?: string) {
-    let orgId: string | undefined = organizationId;
-    try {
-      const { gmail, account } = await this.getAuthorizedGmailClient(mailboxEmail, organizationId);
-      orgId = account.organizationId;
-      const profile = await this.gmailCall(
-        mailboxEmail,
-        'getProfile',
-        this.cost('getProfile'),
-        () => gmail.users.getProfile({ userId: 'me' }),
-        'interactive'
-      );
-      return profile.data;
-    } catch (err: any) {
-      if (err.code === 401 || err.code === 'GMAIL_REAUTH_REQUIRED' || isInvalidGrantError(err)) {
-        await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect your account.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
-        );
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Lists threads from Gmail
-   */
-  public async listThreads(mailboxEmail: string, maxResults = 25, q?: string, organizationId?: string) {
-    let orgId: string | undefined = organizationId;
-    try {
-      const { gmail, account } = await this.getAuthorizedGmailClient(mailboxEmail, organizationId);
-      orgId = account.organizationId;
-      const res = await this.gmailCall(
-        mailboxEmail,
-        'threads.list',
-        this.cost('threads.list'),
-        () =>
-          gmail.users.threads.list({
-            userId: 'me',
-            maxResults,
-            q,
-          }),
-        'interactive'
-      );
-      return res.data.threads || [];
-    } catch (err: any) {
-      if (err.code === 401 || err.code === 'GMAIL_REAUTH_REQUIRED' || isInvalidGrantError(err)) {
-        await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect your account.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
-        );
-      }
-      throw err;
     }
   }
 
@@ -929,11 +842,9 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (err.code === 401 || err.code === 'GMAIL_REAUTH_REQUIRED' || isInvalidGrantError(err)) {
         await this.markMailboxReauthRequired(organizationId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect the account in Integrations.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
+        throw this.reauthRequiredError(
+          mailboxEmail,
+          'Gmail authorization expired or revoked. Please reconnect the account in Integrations.'
         );
       }
       await EmailAccount.updateOne(
@@ -1268,12 +1179,7 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (isInvalidGrantError(err) || err.code === 401) {
         await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect your account.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
-        );
+        throw this.reauthRequiredError(mailboxEmail);
       }
       // Label operations are best-effort; surface non-auth failures softly.
       console.warn(`Gmail modifyThread failed for ${threadId}:`, err?.message || err);
@@ -1300,10 +1206,7 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (isInvalidGrantError(err) || err.code === 401) {
         await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError('Gmail authorization expired or revoked.', 401, 'GMAIL_REAUTH_REQUIRED', {
-          emailAddress: mailboxEmail,
-          requiresReconnect: true,
-        });
+        throw this.reauthRequiredError(mailboxEmail, 'Gmail authorization expired or revoked.');
       }
       console.warn(`Gmail trashThread failed for ${threadId}:`, err?.message || err);
       return false;
@@ -1345,11 +1248,9 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (err.code === 401 || err.code === 'GMAIL_REAUTH_REQUIRED' || isInvalidGrantError(err)) {
         await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError(
-          'Gmail authorization expired or revoked. Please reconnect the account in Integrations.',
-          401,
-          'GMAIL_REAUTH_REQUIRED',
-          { emailAddress: mailboxEmail, requiresReconnect: true }
+        throw this.reauthRequiredError(
+          mailboxEmail,
+          'Gmail authorization expired or revoked. Please reconnect the account in Integrations.'
         );
       }
       throw new AppError(
@@ -1379,10 +1280,7 @@ export class GmailProvider implements IEmailProvider {
     } catch (err: any) {
       if (isInvalidGrantError(err) || err.code === 401) {
         await this.markMailboxReauthRequired(orgId, mailboxEmail);
-        throw new AppError('Gmail authorization expired or revoked.', 401, 'GMAIL_REAUTH_REQUIRED', {
-          emailAddress: mailboxEmail,
-          requiresReconnect: true,
-        });
+        throw this.reauthRequiredError(mailboxEmail, 'Gmail authorization expired or revoked.');
       }
       console.warn(`Gmail deleteThread failed for ${threadId}:`, err?.message || err);
       return false;

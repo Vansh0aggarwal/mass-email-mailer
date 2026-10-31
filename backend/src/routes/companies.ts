@@ -4,6 +4,10 @@ import { Company } from '../models/Company.js';
 import { CompanyContact } from '../models/CompanyContact.js';
 import { CompanyAssessment } from '../models/CompanyAssessment.js';
 import { AppError } from '../middleware/errorHandler.js';
+import {
+  loadUserDisplaySummaries,
+  withUserDisplay,
+} from '../services/user-display.service.js';
 
 const router = Router();
 
@@ -49,9 +53,16 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       Company.countDocuments(query),
     ]);
 
+    const userMap = await loadUserDisplaySummaries(
+      companies.map((company) => company.createdBy),
+      req.organizationId
+    );
+
     res.status(200).json({
       success: true,
-      data: companies,
+      data: companies.map((company) =>
+        withUserDisplay(company, 'createdBy', 'createdByUser', userMap)
+      ),
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -72,11 +83,18 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     const company = await Company.create({
       ...validated,
       organizationId: req.organizationId,
+      createdBy: req.userId,
+      createdVia: 'manual',
     });
 
     res.status(201).json({
       success: true,
-      data: company,
+      data: withUserDisplay(
+        company.toObject(),
+        'createdBy',
+        'createdByUser',
+        await loadUserDisplaySummaries([req.userId], req.organizationId)
+      ),
     });
   } catch (err) {
     next(err);
@@ -105,7 +123,12 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     res.status(200).json({
       success: true,
       data: {
-        ...company,
+        ...withUserDisplay(
+          company,
+          'createdBy',
+          'createdByUser',
+          await loadUserDisplaySummaries([company.createdBy], req.organizationId)
+        ),
         contacts,
         assessments,
       },
@@ -132,7 +155,12 @@ router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
 
     res.status(200).json({
       success: true,
-      data: updated,
+      data: withUserDisplay(
+        updated.toObject(),
+        'createdBy',
+        'createdByUser',
+        await loadUserDisplaySummaries([updated.createdBy], req.organizationId)
+      ),
     });
   } catch (err) {
     next(err);

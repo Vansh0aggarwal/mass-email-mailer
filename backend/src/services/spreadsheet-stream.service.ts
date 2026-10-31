@@ -106,7 +106,7 @@ export function detectSpreadsheetType(fileName: string, mimeType?: string): 'csv
  */
 export function createXlsxRowStream(
   filePath: string,
-  options: { highWaterMark?: number } = {}
+  _options: { highWaterMark?: number } = {}
 ): SpreadsheetRowStream {
   let headers: string[] = [];
   const parseErrors: string[] = [];
@@ -492,6 +492,11 @@ export async function initChunkedUploadSession(
   fileSize: number,
   chunkSize: number = env.IMPORT_CHUNK_SIZE_BYTES
 ): Promise<ChunkedUploadMeta> {
+  const boundedChunkSize = Math.max(
+    256 * 1024,
+    Math.min(Number.isFinite(chunkSize) ? Math.floor(chunkSize) : env.IMPORT_CHUNK_SIZE_BYTES, 64 * 1024 * 1024)
+  );
+  chunkSize = boundedChunkSize;
   if (fileSize > env.IMPORT_MAX_FILE_BYTES) {
     throw new AppError(
       `File size (${(fileSize / (1024 * 1024 * 1024)).toFixed(2)} GB) exceeds maximum allowed limit of ${(
@@ -559,6 +564,19 @@ export async function writeUploadChunk(
   }
 
   const chunkPath = path.join(sessionDir, `chunk_${chunkIndex}.part`);
+  // A single chunk can never meaningfully exceed the negotiated chunk size.
+  // Guarding here protects both upload routes from memory/disk abuse.
+  const maxChunkBytes = meta.chunkSize + 1024 * 1024;
+  if (chunkBuffer.length > maxChunkBytes) {
+    throw new AppError(
+      `Chunk is too large (${(chunkBuffer.length / (1024 * 1024)).toFixed(1)} MB). Maximum is ${(
+        maxChunkBytes /
+        (1024 * 1024)
+      ).toFixed(1)} MB.`,
+      413,
+      'CHUNK_TOO_LARGE'
+    );
+  }
   await fs.promises.writeFile(chunkPath, chunkBuffer);
 
   const receivedSet = new Set(meta.receivedChunks);
@@ -739,6 +757,35 @@ export async function appendRowErrorToDisk(
     await fs.promises.writeFile(errorPath, `Row,Field,Reason,Timestamp\r\n${line}`, 'utf8');
   } else {
     await fs.promises.appendFile(errorPath, line, 'utf8');
+  }
+}
+
+/**
+ * Appends a whole batch of row errors in one disk write. Split analysis can
+ * reject many rows per batch, so writing them one by one would dominate the
+ * import runtime.
+ */
+export async function appendRowErrorsToDisk(
+  jobId: string,
+  errors: { row: number; field: string; reason: string }[]
+): Promise<void> {
+  if (errors.length === 0) return;
+  const dir = ensureUploadDir();
+  const errorPath = path.join(dir, `${jobId}_errors.csv`);
+  const exists = fs.existsSync(errorPath);
+  const timestamp = new Date().toISOString();
+  const lines = errors
+    .map((error) => {
+      const field = String(error.field || '').replace(/"/g, '""');
+      const reason = String(error.reason || '').replace(/"/g, '""');
+      return `"${error.row}","${field}","${reason}","${timestamp}"\r\n`;
+    })
+    .join('');
+
+  if (!exists) {
+    await fs.promises.writeFile(errorPath, `Row,Field,Reason,Timestamp\r\n${lines}`, 'utf8');
+  } else {
+    await fs.promises.appendFile(errorPath, lines, 'utf8');
   }
 }
 

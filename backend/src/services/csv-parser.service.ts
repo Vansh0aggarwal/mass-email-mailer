@@ -155,47 +155,6 @@ export const SWANIKI_HEADER_ALIASES: Record<string, string[]> = {
   step_3_body: ['Step 3 Body', 'Step3 Body', 'Email 3 Body', 'Body 3'],
 };
 
-/** Fields persisted as first-class company/contact attributes. */
-export const IDENTITY_FIELD_KEYS = [
-  'company_name',
-  'domain',
-  'website_url',
-  'industry',
-  'city',
-  'country',
-  'contact_first_name',
-  'contact_last_name',
-  'contact_full_name',
-  'contact_role',
-  'contact_email',
-  'contact_phone',
-  'services',
-  'rating',
-  'notes',
-] as const;
-
-/** Extended fields preserved onto the company's customFields bag. */
-export const EXTENDED_FIELD_KEYS = [
-  'sector',
-  'state_roc',
-  'contact_confidence',
-  'website_status',
-  'site_audit_type',
-  'http_code',
-  'page_title',
-  'proposed_deliverable',
-  'primary_tech_signal',
-  'authorized_capital',
-  'direct_phone',
-  'director_full_name',
-  'step_1_subject',
-  'step_1_body',
-  'step_2_subject',
-  'step_2_body',
-  'step_3_subject',
-  'step_3_body',
-] as const;
-
 export function normalizeHeaderName(raw: string): string {
   return String(raw ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
