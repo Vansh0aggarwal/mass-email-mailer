@@ -47,7 +47,7 @@ function buildPresets(brand: EmailBrand): EmailDesignPreset[] {
         version: 1,
         header: {
           label: 'ENTERPRISE OUTREACH',
-          title: 'Digital Infrastructure Review for {{company_name}}',
+          title: 'A short note for {{company_name}}',
           subtitle: 'Prepared for {{recipient_name}} · {{service}}',
           reference: 'CONFIDENTIAL CORRESPONDENCE',
         },

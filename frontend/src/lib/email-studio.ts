@@ -206,6 +206,7 @@ export interface StudioDraftVariables {
   recipientEmail: string;
   recipientName?: string;
   companyName?: string;
+  domainName?: string;
   recipientRole?: string;
   conversation?: string;
   objective?: string;
@@ -279,6 +280,7 @@ export function designVariables(input: {
   senderName?: string;
   senderTitle?: string;
   service?: string;
+  domainName?: string;
 }): Record<string, string | undefined> {
   return {
     companyName: input.companyName?.trim() || undefined,
@@ -286,6 +288,7 @@ export function designVariables(input: {
     senderName: input.senderName?.trim() || undefined,
     senderTitle: input.senderTitle?.trim() || undefined,
     service: input.service?.trim() || undefined,
+    domainName: input.domainName?.trim() || undefined,
   };
 }
 

@@ -177,16 +177,17 @@ export function EmailDesignStudioPage() {
   const history = historyQuery.data ?? [];
 
   // --- Composer state -----------------------------------------------------
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [recipientName, setRecipientName] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [recipientRole, setRecipientRole] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('vansh@ayyan.com');
+  const [recipientName, setRecipientName] = useState('Vansh');
+  const [companyName, setCompanyName] = useState('Vansh GLOBAL PRIVATE LIMITED');
+  const [domainName, setDomainName] = useState('ayyan.com');
+  const [recipientRole, setRecipientRole] = useState('Managing Director');
   const [conversation, setConversation] = useState('');
-  const [objective, setObjective] = useState('');
-  const [targetService, setTargetService] = useState('');
+  const [objective, setObjective] = useState('Share tailor-made retail/D2C workflow and architectural prototype');
+  const [targetService, setTargetService] = useState('Headless Shopify Storefront & Omnichannel Inventory PWA');
   const [tone, setTone] = useState<EmailTone>('consultative');
-  const [senderName, setSenderName] = useState('');
-  const [senderTitle, setSenderTitle] = useState('');
+  const [senderName, setSenderName] = useState('Swaniki Studio Team');
+  const [senderTitle, setSenderTitle] = useState('Founding Engineer');
 
   const [design, setDesign] = useState<EmailDesignDocument | null>(null);
   const [subject, setSubject] = useState('');
@@ -251,11 +252,12 @@ export function EmailDesignStudioPage() {
       designVariables({
         companyName,
         recipientName,
+        domainName,
         senderName: effectiveSenderName,
         senderTitle: effectiveSenderTitle,
         service: targetService,
       }),
-    [companyName, recipientName, effectiveSenderName, effectiveSenderTitle, targetService]
+    [companyName, recipientName, domainName, effectiveSenderName, effectiveSenderTitle, targetService]
   );
 
   const payloadSignature = useMemo(
@@ -264,6 +266,7 @@ export function EmailDesignStudioPage() {
         recipientEmail,
         recipientName,
         companyName,
+        domainName,
         recipientRole,
         conversation,
         objective,
@@ -279,6 +282,7 @@ export function EmailDesignStudioPage() {
       recipientEmail,
       recipientName,
       companyName,
+      domainName,
       recipientRole,
       conversation,
       objective,
@@ -479,6 +483,7 @@ export function EmailDesignStudioPage() {
         recipientEmail: recipientEmail.trim(),
         recipientName: recipientName.trim() || undefined,
         companyName: companyName.trim() || undefined,
+        domainName: domainName.trim() || undefined,
         recipientRole: recipientRole.trim() || undefined,
         conversation: conversation.trim() || undefined,
         objective: objective.trim() || undefined,
@@ -515,6 +520,7 @@ export function EmailDesignStudioPage() {
       recipientEmail: recipientEmail.trim().toLowerCase(),
       recipientName: recipientName.trim() || undefined,
       companyName: companyName.trim() || undefined,
+      domainName: domainName.trim() || undefined,
       recipientRole: recipientRole.trim() || undefined,
       conversation: conversation.trim() || undefined,
       objective: objective.trim() || undefined,
@@ -685,6 +691,7 @@ export function EmailDesignStudioPage() {
       setRecipientEmail(draft.recipientEmail);
       setRecipientName(draft.recipientName || '');
       setCompanyName(draft.companyName || '');
+      setDomainName((draft as any).domainName || '');
       setRecipientRole('');
       setConversation('');
       setObjective('');
@@ -731,13 +738,14 @@ export function EmailDesignStudioPage() {
   };
 
   const resetStudio = () => {
-    setRecipientEmail('');
-    setRecipientName('');
-    setCompanyName('');
-    setRecipientRole('');
+    setRecipientEmail('vansh@ayyan.com');
+    setRecipientName('Vansh');
+    setCompanyName('Vansh GLOBAL PRIVATE LIMITED');
+    setDomainName('ayyan.com');
+    setRecipientRole('Managing Director');
     setConversation('');
-    setObjective('');
-    setTargetService('');
+    setObjective('Share tailor-made retail/D2C workflow and architectural prototype');
+    setTargetService('Headless Shopify Storefront & Omnichannel Inventory PWA');
     setTone('consultative');
     setDraftId(null);
     setDraftStatus('draft');
@@ -916,6 +924,15 @@ export function EmailDesignStudioPage() {
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   placeholder="Acme Logistics"
+                  maxLength={160}
+                />
+              </Field>
+              <Field label="Company domain" hint="used in {{domain_name}}">
+                <input
+                  className={inputClass}
+                  value={domainName}
+                  onChange={(e) => setDomainName(e.target.value)}
+                  placeholder="ayyan.com"
                   maxLength={160}
                 />
               </Field>
